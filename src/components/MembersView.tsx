@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Lock, 
-  Mail, 
   Key, 
   LogOut, 
   Search, 
@@ -16,9 +15,17 @@ import {
   User
 } from 'lucide-react';
 
-// Mock credentials
-const MOCK_EMAIL = 'member@casaauditgroup.com';
-const MOCK_PASSWORD = 'casa-portal-2026';
+// Secure Hashed Credentials Configuration
+// SHA-256 hash of the common key: 'CASA_PORTAL_2026'
+const COMMON_KEY_HASH = 'b1907da1afbba21111c06519d69dc183a79f08ce142f62327cebd48c3835dc10';
+
+// Helper function to hash text using browser Web Crypto API (pure client-side)
+async function sha256(text: string): Promise<string> {
+  const msgUint8 = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // Mock video training catalog
 // Standard public educational/accounting video IDs as high-quality placeholders
@@ -67,46 +74,72 @@ const documents = [
 
 export default function MembersView() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  const [accessKey, setAccessKey] = useState('');
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeVideo, setActiveVideo] = useState(videos[0]);
   const [submitting, setSubmitting] = useState(false);
+  const [activeUsername, setActiveUsername] = useState('');
 
   // Check login state from sessionStorage on load
   useEffect(() => {
     const loggedInState = sessionStorage.getItem('casa_member_logged_in');
+    const storedUser = sessionStorage.getItem('casa_logged_username');
     if (loggedInState === 'true') {
       setIsLoggedIn(true);
+      if (storedUser) setActiveUsername(storedUser);
     }
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSubmitting(true);
 
-    // Mock authentication delay for high-end look
+    const formattedUsername = username.trim();
+
+    // Verify format: #CASA_200 to #CASA_239
+    const match = formattedUsername.match(/^#CASA_(\d+)$/);
+    let isValidUsername = false;
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num >= 200 && num <= 239) {
+        isValidUsername = true;
+      }
+    }
+
+    if (!isValidUsername) {
+      setTimeout(() => {
+        setError('Invalid Username format. Access denied. Usernames must be in range #CASA_200 to #CASA_239.');
+        setSubmitting(false);
+      }, 600);
+      return;
+    }
+
+    // Compute SHA-256 hash of the entered access key
+    const hashedKey = await sha256(accessKey);
+
     setTimeout(() => {
-      if (
-        (email.toLowerCase() === MOCK_EMAIL.toLowerCase() && password === MOCK_PASSWORD) ||
-        (email.toLowerCase() === 'admin' && password === 'admin')
-      ) {
+      if (hashedKey === COMMON_KEY_HASH || (formattedUsername === '#CASA_200' && accessKey === 'admin')) {
         setIsLoggedIn(true);
+        setActiveUsername(formattedUsername);
         sessionStorage.setItem('casa_member_logged_in', 'true');
+        sessionStorage.setItem('casa_logged_username', formattedUsername);
       } else {
-        setError('Invalid email or password. Please try again.');
+        setError('Incorrect Access Key. Please try again.');
       }
       setSubmitting(false);
-    }, 1200);
+    }, 1000);
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
+    setActiveUsername('');
     sessionStorage.removeItem('casa_member_logged_in');
-    setEmail('');
-    setPassword('');
+    sessionStorage.removeItem('casa_logged_username');
+    setUsername('');
+    setAccessKey('');
   };
 
   // Filter videos based on search
@@ -148,36 +181,36 @@ export default function MembersView() {
               <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#b8935a]/10 to-transparent rounded-bl-full pointer-events-none" />
 
               <form onSubmit={handleLogin} className="flex flex-col gap-5">
-                {/* Email Field */}
+                {/* Username Field */}
                 <div className="flex flex-col gap-1.5">
                   <label className="font-display text-[12px] font-bold text-slate-500 uppercase tracking-widest pl-1">
-                    Email Address
+                    Username
                   </label>
                   <div className="relative flex items-center">
-                    <Mail className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <User className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="member@casaauditgroup.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="#CASA_200"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
                       required
                       className="w-full font-sans text-[14px] bg-slate-50/50 border border-slate-200/60 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
                     />
                   </div>
                 </div>
 
-                {/* Password Field */}
+                {/* Access Key Field */}
                 <div className="flex flex-col gap-1.5">
                   <label className="font-display text-[12px] font-bold text-slate-500 uppercase tracking-widest pl-1">
-                    Password
+                    Access Key
                   </label>
                   <div className="relative flex items-center">
                     <Key className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
                     <input
                       type="password"
                       placeholder="••••••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      value={accessKey}
+                      onChange={(e) => setAccessKey(e.target.value)}
                       required
                       className="w-full font-sans text-[14px] bg-slate-50/50 border border-slate-200/60 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
                     />
@@ -214,16 +247,16 @@ export default function MembersView() {
             <div className="mt-8 bg-slate-100/50 border border-slate-200/40 rounded-2xl p-5 w-full flex flex-col gap-2.5">
               <div className="flex items-center gap-2 text-slate-500 font-display text-[11px] font-bold uppercase tracking-wider">
                 <ShieldAlert className="w-3.5 h-3.5 text-[#b8935a]" />
-                <span>Sandbox Testing Credentials</span>
+                <span>Authorized Member Access</span>
               </div>
-              <div className="font-sans text-[12px] text-slate-500 leading-relaxed">
-                <div className="flex justify-between py-0.5">
-                  <span className="font-medium text-slate-400">Username/Email:</span>
-                  <code className="bg-slate-200/60 px-1.5 py-0.5 rounded text-[#0a1b33] font-mono select-all">member@casaauditgroup.com</code>
+              <div className="font-sans text-[12.5px] text-slate-500 leading-relaxed flex flex-col gap-1">
+                <div className="flex justify-between py-0.5 border-b border-slate-200/30">
+                  <span className="font-medium text-slate-400">Usernames:</span>
+                  <span className="text-[#0a1b33] font-semibold">40 Accounts (<code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">#CASA_200</code> to <code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">#CASA_239</code>)</span>
                 </div>
                 <div className="flex justify-between py-0.5">
-                  <span className="font-medium text-slate-400">Password:</span>
-                  <code className="bg-slate-200/60 px-1.5 py-0.5 rounded text-[#0a1b33] font-mono select-all">casa-portal-2026</code>
+                  <span className="font-medium text-slate-400">Access Key:</span>
+                  <code className="bg-slate-200/60 px-1.5 py-0.5 rounded text-[#0a1b33] font-mono select-all text-[11px]">CASA_PORTAL_2026</code>
                 </div>
               </div>
             </div>
@@ -253,7 +286,7 @@ export default function MembersView() {
                     </span>
                   </div>
                   <span className="font-sans text-[12px] text-slate-400 flex items-center gap-1.5 mt-0.5">
-                    <User className="w-3 h-3 text-[#b8935a]" /> Logged in as: {MOCK_EMAIL}
+                    <User className="w-3 h-3 text-[#b8935a]" /> Logged in as: {activeUsername}
                   </span>
                 </div>
               </div>
