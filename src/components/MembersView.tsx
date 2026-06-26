@@ -64,6 +64,16 @@ const defaultDocuments = [
   { name: "Staff Travel Reimbursement Form", type: "Excel (XLSX)", size: "1.2 MB", date: "Mar 10, 2026" }
 ];
 
+function extractYoutubeId(input: string): string {
+  const trimmed = input.trim();
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = trimmed.match(regExp);
+  if (match && match[2].length === 11) {
+    return match[2];
+  }
+  return trimmed;
+}
+
 export default function MembersView() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -231,19 +241,21 @@ export default function MembersView() {
       return;
     }
 
+    const parsedId = extractYoutubeId(videoYtId);
+
     let updatedList;
     if (editingVideoId) {
       // Edit mode
       updatedList = videosList.map(v => 
         v.id === editingVideoId 
-          ? { ...v, title: videoTitle, youtubeId: videoYtId, category: videoCategory, duration: videoDuration, description: videoDescription }
+          ? { ...v, title: videoTitle, youtubeId: parsedId, category: videoCategory, duration: videoDuration, description: videoDescription }
           : v
       );
     } else {
       // Add mode
       const newVideo = {
         id: `custom-${Date.now()}`,
-        youtubeId: videoYtId,
+        youtubeId: parsedId,
         title: videoTitle,
         category: videoCategory,
         duration: videoDuration,
