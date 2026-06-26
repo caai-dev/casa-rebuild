@@ -422,27 +422,7 @@ export default function MembersView() {
               </form>
             </div>
 
-            {/* Helper Info (Testing credentials showing new scheme) */}
-            <div className="mt-8 bg-slate-100/50 border border-slate-200/40 rounded-2xl p-5 w-full flex flex-col gap-2.5">
-              <div className="flex items-center gap-2 text-slate-500 font-display text-[11px] font-bold uppercase tracking-wider">
-                <ShieldAlert className="w-3.5 h-3.5 text-[#b8935a]" />
-                <span>Authorized Member Access</span>
-              </div>
-              <div className="font-sans text-[12.5px] text-slate-500 leading-relaxed flex flex-col gap-1">
-                <div className="flex justify-between py-0.5 border-b border-slate-200/30">
-                  <span className="font-medium text-slate-400">Usernames:</span>
-                  <span className="text-[#0a1b33] font-semibold">n Accounts (Format: <code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">CASA[number]</code>, e.g. <code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">CASA241</code>)</span>
-                </div>
-                <div className="flex justify-between py-0.5 border-b border-slate-200/30">
-                  <span className="font-medium text-slate-400">Access Key:</span>
-                  <code className="bg-slate-200/60 px-1.5 py-0.5 rounded text-[#0a1b33] font-mono select-all text-[11px]">443357</code>
-                </div>
-                <div className="flex justify-between py-0.5">
-                  <span className="font-medium text-slate-400">Admins:</span>
-                  <span className="text-[#0a1b33] font-semibold">sagar / dev (Key: <code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">CASA57</code>)</span>
-                </div>
-              </div>
-            </div>
+
           </motion.div>
         ) : (
           // MEMBERS PORTAL HUB
