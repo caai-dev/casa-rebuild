@@ -106,7 +106,7 @@ export default function MembersView() {
   const [docType, setDocType] = useState('');
   const [docSize, setDocSize] = useState('');
 
-  // 1. Initial load effect
+  // 1. Initial load effect (Fetches centralized database from PHP API)
   useEffect(() => {
     // Auth state retrieval
     const loggedInState = sessionStorage.getItem('casa_member_logged_in');
@@ -118,36 +118,32 @@ export default function MembersView() {
       if (storedAdmin === 'true') setIsAdmin(true);
     }
 
-    // Videos list retrieval
-    const storedVideos = localStorage.getItem('casa_intranet_videos');
-    let loadedVideos = defaultVideos;
-    if (storedVideos) {
-      try {
-        loadedVideos = JSON.parse(storedVideos);
-      } catch (e) {
-        console.error('Error loading stored videos:', e);
-      }
-    } else {
-      localStorage.setItem('casa_intranet_videos', JSON.stringify(defaultVideos));
-    }
-    setVideosList(loadedVideos);
-    if (loadedVideos.length > 0) {
-      setActiveVideo(loadedVideos[0]);
-    }
+    // Load data from Hostinger shared database API
+    fetch('/api.php')
+      .then(res => res.json())
+      .then(data => {
+        if (data.videos) {
+          setVideosList(data.videos);
+          if (data.videos.length > 0) {
+            setActiveVideo(data.videos[0]);
+          }
+        }
+        if (data.documents) {
+          setDocumentsList(data.documents);
+        }
+      })
+      .catch(err => {
+        console.error('Error loading centralized database, falling back to local copies:', err);
+        
+        // Local storage / defaults fallback
+        const storedVideos = localStorage.getItem('casa_intranet_videos');
+        const loadedVideos = storedVideos ? JSON.parse(storedVideos) : defaultVideos;
+        setVideosList(loadedVideos);
+        if (loadedVideos.length > 0) setActiveVideo(loadedVideos[0]);
 
-    // Documents list retrieval
-    const storedDocs = localStorage.getItem('casa_intranet_documents');
-    let loadedDocs = defaultDocuments;
-    if (storedDocs) {
-      try {
-        loadedDocs = JSON.parse(storedDocs);
-      } catch (e) {
-        console.error('Error loading stored documents:', e);
-      }
-    } else {
-      localStorage.setItem('casa_intranet_documents', JSON.stringify(defaultDocuments));
-    }
-    setDocumentsList(loadedDocs);
+        const storedDocs = localStorage.getItem('casa_intranet_documents');
+        setDocumentsList(storedDocs ? JSON.parse(storedDocs) : defaultDocuments);
+      });
   }, []);
 
   // 2. Auth submission logic
@@ -157,21 +153,55 @@ export default function MembersView() {
     setSubmitting(true);
 
     const formattedUsername = username.trim();
-    // Resolve environment keys (Vite builds inject these at build-time)
+    const cleanAccessKey = accessKey.trim();
+
+    try {
+      const response = await fetch('/api.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'login',
+          username: formattedUsername,
+          access_key: cleanAccessKey
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setIsLoggedIn(true);
+          const isUserAdmin = data.role === 'admin';
+          setIsAdmin(isUserAdmin);
+          setActiveUsername(formattedUsername);
+          
+          sessionStorage.setItem('casa_member_logged_in', 'true');
+          sessionStorage.setItem('casa_logged_username', formattedUsername);
+          sessionStorage.setItem('casa_is_admin', isUserAdmin ? 'true' : 'false');
+          sessionStorage.setItem('casa_admin_key', cleanAccessKey);
+          setSubmitting(false);
+          return;
+        } else {
+          setError(data.error || 'Invalid Username or Access Key.');
+          setSubmitting(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Authentication API offline, using client-side fallback:', err);
+    }
+
+    // Fallback logic (local dev or backend offline)
     const commonKey = import.meta.env.VITE_COMMON_ACCESS_KEY || '443357';
     const superAdminKey = import.meta.env.VITE_SUPER_ADMIN_KEY || 'CASA57';
 
-    // Verify Super Admin Access (sagar / dev / admin) with the superAdminKey (CASA57)
     const isAdminUser = (
       formattedUsername.toLowerCase() === 'sagar' || 
       formattedUsername.toLowerCase() === 'dev' || 
       formattedUsername.toLowerCase() === 'admin'
     );
-    const isSuperAdminLogin = isAdminUser && accessKey === superAdminKey;
-
-    // Verify Standard User Access (CASA followed by digits, e.g. CASA241) with the commonKey (443357)
+    const isSuperAdminLogin = isAdminUser && cleanAccessKey === superAdminKey;
     const match = formattedUsername.match(/^CASA\d+$/);
-    const isStandardLogin = match && accessKey === commonKey;
+    const isStandardLogin = match && cleanAccessKey === commonKey;
 
     setTimeout(() => {
       if (isSuperAdminLogin) {
@@ -181,6 +211,7 @@ export default function MembersView() {
         sessionStorage.setItem('casa_member_logged_in', 'true');
         sessionStorage.setItem('casa_logged_username', formattedUsername);
         sessionStorage.setItem('casa_is_admin', 'true');
+        sessionStorage.setItem('casa_admin_key', cleanAccessKey);
       } else if (isStandardLogin) {
         setIsLoggedIn(true);
         setIsAdmin(false);
@@ -188,17 +219,18 @@ export default function MembersView() {
         sessionStorage.setItem('casa_member_logged_in', 'true');
         sessionStorage.setItem('casa_logged_username', formattedUsername);
         sessionStorage.setItem('casa_is_admin', 'false');
+        sessionStorage.setItem('casa_admin_key', cleanAccessKey);
       } else {
-        if (isAdminUser && accessKey !== superAdminKey) {
+        if (isAdminUser && cleanAccessKey !== superAdminKey) {
           setError('Incorrect Super Admin Key.');
-        } else if (match && accessKey !== commonKey) {
+        } else if (match && cleanAccessKey !== commonKey) {
           setError('Incorrect Common Access Key.');
         } else {
           setError('Invalid Username or Credentials. standard accounts must be CASA followed by numbers (e.g. CASA241) and admins must be sagar/dev.');
         }
       }
       setSubmitting(false);
-    }, 1000);
+    }, 500);
   };
 
   const handleLogout = () => {
@@ -208,6 +240,7 @@ export default function MembersView() {
     sessionStorage.removeItem('casa_member_logged_in');
     sessionStorage.removeItem('casa_logged_username');
     sessionStorage.removeItem('casa_is_admin');
+    sessionStorage.removeItem('casa_admin_key');
     setUsername('');
     setAccessKey('');
   };
@@ -242,53 +275,80 @@ export default function MembersView() {
     }
 
     const parsedId = extractYoutubeId(videoYtId);
+    const superAdminKey = sessionStorage.getItem('casa_admin_key') || import.meta.env.VITE_SUPER_ADMIN_KEY || 'CASA57';
 
-    let updatedList;
-    if (editingVideoId) {
-      // Edit mode
-      updatedList = videosList.map(v => 
-        v.id === editingVideoId 
-          ? { ...v, title: videoTitle, youtubeId: parsedId, category: videoCategory, duration: videoDuration, description: videoDescription }
-          : v
-      );
-    } else {
-      // Add mode
-      const newVideo = {
-        id: `custom-${Date.now()}`,
-        youtubeId: parsedId,
-        title: videoTitle,
-        category: videoCategory,
-        duration: videoDuration,
-        description: videoDescription
-      };
-      updatedList = [...videosList, newVideo];
-    }
+    const newVideo = {
+      id: editingVideoId || `custom-${Date.now()}`,
+      youtubeId: parsedId,
+      title: videoTitle,
+      category: videoCategory,
+      duration: videoDuration,
+      description: videoDescription
+    };
 
-    localStorage.setItem('casa_intranet_videos', JSON.stringify(updatedList));
-    setVideosList(updatedList);
-    
-    // Reset active video focus if it was edited or is new
-    if (editingVideoId && activeVideo && activeVideo.id === editingVideoId) {
-      const match = updatedList.find(v => v.id === editingVideoId);
-      if (match) setActiveVideo(match);
-    } else if (!editingVideoId && updatedList.length === 1) {
-      setActiveVideo(updatedList[0]);
-    }
-
-    setShowVideoModal(false);
+    // Save to centralized server database
+    fetch('/api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save_video',
+        video: newVideo,
+        admin_key: superAdminKey
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.videos) {
+        setVideosList(data.videos);
+        // Sync local storage copy
+        localStorage.setItem('casa_intranet_videos', JSON.stringify(data.videos));
+        
+        if (editingVideoId && activeVideo && activeVideo.id === editingVideoId) {
+          const match = data.videos.find((v: any) => v.id === editingVideoId);
+          if (match) setActiveVideo(match);
+        } else if (!editingVideoId && data.videos.length === 1) {
+          setActiveVideo(data.videos[0]);
+        }
+        setShowVideoModal(false);
+      } else {
+        alert('Failed to save to server: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(err => {
+      console.error('Error saving video to server:', err);
+      alert('Error connecting to database server. Video details were not saved.');
+    });
   };
 
   const deleteVideo = (id: string) => {
     if (!confirm('Are you sure you want to delete this video?')) return;
-    
-    const updatedList = videosList.filter(v => v.id !== id);
-    localStorage.setItem('casa_intranet_videos', JSON.stringify(updatedList));
-    setVideosList(updatedList);
+    const superAdminKey = sessionStorage.getItem('casa_admin_key') || import.meta.env.VITE_SUPER_ADMIN_KEY || 'CASA57';
 
-    // If active video was deleted, switch focus
-    if (activeVideo && activeVideo.id === id) {
-      setActiveVideo(updatedList.length > 0 ? updatedList[0] : null);
-    }
+    fetch('/api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'delete_video',
+        id: id,
+        admin_key: superAdminKey
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.videos) {
+        setVideosList(data.videos);
+        localStorage.setItem('casa_intranet_videos', JSON.stringify(data.videos));
+        if (activeVideo && activeVideo.id === id) {
+          setActiveVideo(data.videos.length > 0 ? data.videos[0] : null);
+        }
+      } else {
+        alert('Failed to delete: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(err => {
+      console.error('Error deleting video:', err);
+      alert('Database error. Unable to delete video.');
+    });
   };
 
   // Documents Operations
@@ -318,19 +378,60 @@ export default function MembersView() {
       size: docSize,
       date: dateFormatted
     };
+    
+    const superAdminKey = sessionStorage.getItem('casa_admin_key') || import.meta.env.VITE_SUPER_ADMIN_KEY || 'CASA57';
 
-    const updatedList = [...documentsList, newDoc];
-    localStorage.setItem('casa_intranet_documents', JSON.stringify(updatedList));
-    setDocumentsList(updatedList);
-    setShowDocModal(false);
+    fetch('/api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save_doc',
+        document: newDoc,
+        admin_key: superAdminKey
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.documents) {
+        setDocumentsList(data.documents);
+        localStorage.setItem('casa_intranet_documents', JSON.stringify(data.documents));
+        setShowDocModal(false);
+      } else {
+        alert('Failed to save document: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(err => {
+      console.error('Error saving document:', err);
+      alert('Database error. Unable to save document template.');
+    });
   };
 
   const deleteDocument = (index: number) => {
     if (!confirm('Are you sure you want to delete this document template?')) return;
+    const superAdminKey = sessionStorage.getItem('casa_admin_key') || import.meta.env.VITE_SUPER_ADMIN_KEY || 'CASA57';
 
-    const updatedList = documentsList.filter((_, idx) => idx !== index);
-    localStorage.setItem('casa_intranet_documents', JSON.stringify(updatedList));
-    setDocumentsList(updatedList);
+    fetch('/api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'delete_doc',
+        index: index,
+        admin_key: superAdminKey
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.documents) {
+        setDocumentsList(data.documents);
+        localStorage.setItem('casa_intranet_documents', JSON.stringify(data.documents));
+      } else {
+        alert('Failed to delete document: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(err => {
+      console.error('Error deleting document:', err);
+      alert('Database error. Unable to delete document.');
+    });
   };
 
   // Filter videos based on search
