@@ -12,24 +12,16 @@ import {
   Clock, 
   BookOpen, 
   ShieldAlert,
-  User
+  User,
+  Plus,
+  Trash2,
+  Edit3,
+  X,
+  Save
 } from 'lucide-react';
 
-// Secure Hashed Credentials Configuration
-// SHA-256 hash of the common key: 'CASA_PORTAL_2026'
-const COMMON_KEY_HASH = 'b1907da1afbba21111c06519d69dc183a79f08ce142f62327cebd48c3835dc10';
-
-// Helper function to hash text using browser Web Crypto API (pure client-side)
-async function sha256(text: string): Promise<string> {
-  const msgUint8 = new TextEncoder().encode(text);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-// Mock video training catalog
-// Standard public educational/accounting video IDs as high-quality placeholders
-const videos = [
+// Default video training catalog (used if localStorage is empty)
+const defaultVideos = [
   {
     id: "active-1",
     youtubeId: "yK7nC1E8u4g", // Public introduction to financial auditing
@@ -64,8 +56,8 @@ const videos = [
   }
 ];
 
-// Mock internal documents for download
-const documents = [
+// Default internal documents (used if localStorage is empty)
+const defaultDocuments = [
   { name: "CASA Audit Audit Working Papers Template", type: "Word (DOCX)", size: "2.4 MB", date: "Jan 12, 2026" },
   { name: "Corporate Compliance Calendar Q3-Q4", type: "PDF Document", size: "1.8 MB", date: "May 25, 2026" },
   { name: "Client Onboarding & Intake Checklist", type: "PDF Document", size: "850 KB", date: "Jun 02, 2026" },
@@ -74,60 +66,126 @@ const documents = [
 
 export default function MembersView() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [username, setUsername] = useState('');
   const [accessKey, setAccessKey] = useState('');
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeVideo, setActiveVideo] = useState(videos[0]);
   const [submitting, setSubmitting] = useState(false);
   const [activeUsername, setActiveUsername] = useState('');
 
-  // Check login state from sessionStorage on load
+  // Intranet resource list states loaded from localStorage
+  const [videosList, setVideosList] = useState<typeof defaultVideos>([]);
+  const [documentsList, setDocumentsList] = useState<typeof defaultDocuments>([]);
+  const [activeVideo, setActiveVideo] = useState<typeof defaultVideos[0] | null>(null);
+
+  // Modals and Forms states for Super Admin actions
+  const [showVideoModal, setShowVideoModal] = useState(false);
+  const [showDocModal, setShowDocModal] = useState(false);
+  
+  // Video Form inputs
+  const [videoTitle, setVideoTitle] = useState('');
+  const [videoYtId, setVideoYtId] = useState('');
+  const [videoCategory, setVideoCategory] = useState('');
+  const [videoDuration, setVideoDuration] = useState('');
+  const [videoDescription, setVideoDescription] = useState('');
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
+
+  // Document Form inputs
+  const [docName, setDocName] = useState('');
+  const [docType, setDocType] = useState('');
+  const [docSize, setDocSize] = useState('');
+
+  // 1. Initial load effect
   useEffect(() => {
+    // Auth state retrieval
     const loggedInState = sessionStorage.getItem('casa_member_logged_in');
     const storedUser = sessionStorage.getItem('casa_logged_username');
+    const storedAdmin = sessionStorage.getItem('casa_is_admin');
     if (loggedInState === 'true') {
       setIsLoggedIn(true);
       if (storedUser) setActiveUsername(storedUser);
+      if (storedAdmin === 'true') setIsAdmin(true);
     }
+
+    // Videos list retrieval
+    const storedVideos = localStorage.getItem('casa_intranet_videos');
+    let loadedVideos = defaultVideos;
+    if (storedVideos) {
+      try {
+        loadedVideos = JSON.parse(storedVideos);
+      } catch (e) {
+        console.error('Error loading stored videos:', e);
+      }
+    } else {
+      localStorage.setItem('casa_intranet_videos', JSON.stringify(defaultVideos));
+    }
+    setVideosList(loadedVideos);
+    if (loadedVideos.length > 0) {
+      setActiveVideo(loadedVideos[0]);
+    }
+
+    // Documents list retrieval
+    const storedDocs = localStorage.getItem('casa_intranet_documents');
+    let loadedDocs = defaultDocuments;
+    if (storedDocs) {
+      try {
+        loadedDocs = JSON.parse(storedDocs);
+      } catch (e) {
+        console.error('Error loading stored documents:', e);
+      }
+    } else {
+      localStorage.setItem('casa_intranet_documents', JSON.stringify(defaultDocuments));
+    }
+    setDocumentsList(loadedDocs);
   }, []);
 
+  // 2. Auth submission logic
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSubmitting(true);
 
     const formattedUsername = username.trim();
+    // Resolve environment keys (Vite builds inject these at build-time)
+    const commonKey = import.meta.env.VITE_COMMON_ACCESS_KEY || '443357';
+    const superAdminKey = import.meta.env.VITE_SUPER_ADMIN_KEY || 'CASA57';
 
-    // Verify format: #CASA_200 to #CASA_239
-    const match = formattedUsername.match(/^#CASA_(\d+)$/);
-    let isValidUsername = false;
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (num >= 200 && num <= 239) {
-        isValidUsername = true;
-      }
-    }
+    // Verify Super Admin Access (sagar / dev / admin) with the superAdminKey (CASA57)
+    const isAdminUser = (
+      formattedUsername.toLowerCase() === 'sagar' || 
+      formattedUsername.toLowerCase() === 'dev' || 
+      formattedUsername.toLowerCase() === 'admin'
+    );
+    const isSuperAdminLogin = isAdminUser && accessKey === superAdminKey;
 
-    if (!isValidUsername) {
-      setTimeout(() => {
-        setError('Invalid Username format. Access denied. Usernames must be in range #CASA_200 to #CASA_239.');
-        setSubmitting(false);
-      }, 600);
-      return;
-    }
-
-    // Compute SHA-256 hash of the entered access key
-    const hashedKey = await sha256(accessKey);
+    // Verify Standard User Access (CASA followed by digits, e.g. CASA241) with the commonKey (443357)
+    const match = formattedUsername.match(/^CASA\d+$/);
+    const isStandardLogin = match && accessKey === commonKey;
 
     setTimeout(() => {
-      if (hashedKey === COMMON_KEY_HASH || (formattedUsername === '#CASA_200' && accessKey === 'admin')) {
+      if (isSuperAdminLogin) {
         setIsLoggedIn(true);
+        setIsAdmin(true);
         setActiveUsername(formattedUsername);
         sessionStorage.setItem('casa_member_logged_in', 'true');
         sessionStorage.setItem('casa_logged_username', formattedUsername);
+        sessionStorage.setItem('casa_is_admin', 'true');
+      } else if (isStandardLogin) {
+        setIsLoggedIn(true);
+        setIsAdmin(false);
+        setActiveUsername(formattedUsername);
+        sessionStorage.setItem('casa_member_logged_in', 'true');
+        sessionStorage.setItem('casa_logged_username', formattedUsername);
+        sessionStorage.setItem('casa_is_admin', 'false');
       } else {
-        setError('Incorrect Access Key. Please try again.');
+        if (isAdminUser && accessKey !== superAdminKey) {
+          setError('Incorrect Super Admin Key.');
+        } else if (match && accessKey !== commonKey) {
+          setError('Incorrect Common Access Key.');
+        } else {
+          setError('Invalid Username or Credentials. standard accounts must be CASA followed by numbers (e.g. CASA241) and admins must be sagar/dev.');
+        }
       }
       setSubmitting(false);
     }, 1000);
@@ -135,15 +193,136 @@ export default function MembersView() {
 
   const handleLogout = () => {
     setIsLoggedIn(false);
+    setIsAdmin(false);
     setActiveUsername('');
     sessionStorage.removeItem('casa_member_logged_in');
     sessionStorage.removeItem('casa_logged_username');
+    sessionStorage.removeItem('casa_is_admin');
     setUsername('');
     setAccessKey('');
   };
 
+  // 3. Super Admin Content Management Operations
+  
+  // Videos Operations
+  const openAddVideo = () => {
+    setEditingVideoId(null);
+    setVideoTitle('');
+    setVideoYtId('');
+    setVideoCategory('');
+    setVideoDuration('');
+    setVideoDescription('');
+    setShowVideoModal(true);
+  };
+
+  const openEditVideo = (video: typeof defaultVideos[0]) => {
+    setEditingVideoId(video.id);
+    setVideoTitle(video.title);
+    setVideoYtId(video.youtubeId);
+    setVideoCategory(video.category);
+    setVideoDuration(video.duration);
+    setVideoDescription(video.description);
+    setShowVideoModal(true);
+  };
+
+  const saveVideo = () => {
+    if (!videoTitle || !videoYtId || !videoCategory || !videoDuration || !videoDescription) {
+      alert('Please fill in all fields before saving.');
+      return;
+    }
+
+    let updatedList;
+    if (editingVideoId) {
+      // Edit mode
+      updatedList = videosList.map(v => 
+        v.id === editingVideoId 
+          ? { ...v, title: videoTitle, youtubeId: videoYtId, category: videoCategory, duration: videoDuration, description: videoDescription }
+          : v
+      );
+    } else {
+      // Add mode
+      const newVideo = {
+        id: `custom-${Date.now()}`,
+        youtubeId: videoYtId,
+        title: videoTitle,
+        category: videoCategory,
+        duration: videoDuration,
+        description: videoDescription
+      };
+      updatedList = [...videosList, newVideo];
+    }
+
+    localStorage.setItem('casa_intranet_videos', JSON.stringify(updatedList));
+    setVideosList(updatedList);
+    
+    // Reset active video focus if it was edited or is new
+    if (editingVideoId && activeVideo && activeVideo.id === editingVideoId) {
+      const match = updatedList.find(v => v.id === editingVideoId);
+      if (match) setActiveVideo(match);
+    } else if (!editingVideoId && updatedList.length === 1) {
+      setActiveVideo(updatedList[0]);
+    }
+
+    setShowVideoModal(false);
+  };
+
+  const deleteVideo = (id: string) => {
+    if (!confirm('Are you sure you want to delete this video?')) return;
+    
+    const updatedList = videosList.filter(v => v.id !== id);
+    localStorage.setItem('casa_intranet_videos', JSON.stringify(updatedList));
+    setVideosList(updatedList);
+
+    // If active video was deleted, switch focus
+    if (activeVideo && activeVideo.id === id) {
+      setActiveVideo(updatedList.length > 0 ? updatedList[0] : null);
+    }
+  };
+
+  // Documents Operations
+  const openAddDoc = () => {
+    setDocName('');
+    setDocType('');
+    setDocSize('');
+    setShowDocModal(true);
+  };
+
+  const saveDocument = () => {
+    if (!docName || !docType || !docSize) {
+      alert('Please fill in all fields before saving.');
+      return;
+    }
+
+    const today = new Date();
+    const dateFormatted = today.toLocaleDateString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric'
+    });
+
+    const newDoc = {
+      name: docName,
+      type: docType,
+      size: docSize,
+      date: dateFormatted
+    };
+
+    const updatedList = [...documentsList, newDoc];
+    localStorage.setItem('casa_intranet_documents', JSON.stringify(updatedList));
+    setDocumentsList(updatedList);
+    setShowDocModal(false);
+  };
+
+  const deleteDocument = (index: number) => {
+    if (!confirm('Are you sure you want to delete this document template?')) return;
+
+    const updatedList = documentsList.filter((_, idx) => idx !== index);
+    localStorage.setItem('casa_intranet_documents', JSON.stringify(updatedList));
+    setDocumentsList(updatedList);
+  };
+
   // Filter videos based on search
-  const filteredVideos = videos.filter(v => 
+  const filteredVideos = videosList.filter(v => 
     v.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     v.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
     v.description.toLowerCase().includes(searchQuery.toLowerCase())
@@ -171,7 +350,7 @@ export default function MembersView() {
                 CASA Member Portal
               </h1>
               <p className="font-sans text-[13px] text-slate-400 mt-2 max-w-sm">
-                Restricted area. Please sign in with your firm credentials to access confidential videos and resources.
+                Restricted area. Please sign in with your credentials to access confidential videos and resources.
               </p>
             </div>
 
@@ -190,7 +369,7 @@ export default function MembersView() {
                     <User className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="#CASA_200"
+                      placeholder="CASA241"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       required
@@ -229,7 +408,7 @@ export default function MembersView() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full bg-[#0a1b33] text-white font-display text-[14px] font-semibold py-4 rounded-2xl shadow-md transition-all hover:bg-[#b8935a] active:scale-98 cursor-pointer flex items-center justify-center gap-2 mt-2"
+                  className="w-full bg-[#0a1b33] text-white font-display text-[14px] font-semibold py-4 rounded-2xl shadow-md transition-all hover:bg-[#b8935a] active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 mt-2"
                 >
                   {submitting ? (
                     <>
@@ -243,7 +422,7 @@ export default function MembersView() {
               </form>
             </div>
 
-            {/* Helper Info (Testing credentials) */}
+            {/* Helper Info (Testing credentials showing new scheme) */}
             <div className="mt-8 bg-slate-100/50 border border-slate-200/40 rounded-2xl p-5 w-full flex flex-col gap-2.5">
               <div className="flex items-center gap-2 text-slate-500 font-display text-[11px] font-bold uppercase tracking-wider">
                 <ShieldAlert className="w-3.5 h-3.5 text-[#b8935a]" />
@@ -252,11 +431,15 @@ export default function MembersView() {
               <div className="font-sans text-[12.5px] text-slate-500 leading-relaxed flex flex-col gap-1">
                 <div className="flex justify-between py-0.5 border-b border-slate-200/30">
                   <span className="font-medium text-slate-400">Usernames:</span>
-                  <span className="text-[#0a1b33] font-semibold">40 Accounts (<code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">#CASA_200</code> to <code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">#CASA_239</code>)</span>
+                  <span className="text-[#0a1b33] font-semibold">n Accounts (Format: <code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">CASA[number]</code>, e.g. <code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">CASA241</code>)</span>
+                </div>
+                <div className="flex justify-between py-0.5 border-b border-slate-200/30">
+                  <span className="font-medium text-slate-400">Access Key:</span>
+                  <code className="bg-slate-200/60 px-1.5 py-0.5 rounded text-[#0a1b33] font-mono select-all text-[11px]">443357</code>
                 </div>
                 <div className="flex justify-between py-0.5">
-                  <span className="font-medium text-slate-400">Access Key:</span>
-                  <code className="bg-slate-200/60 px-1.5 py-0.5 rounded text-[#0a1b33] font-mono select-all text-[11px]">CASA_PORTAL_2026</code>
+                  <span className="font-medium text-slate-400">Admins:</span>
+                  <span className="text-[#0a1b33] font-semibold">sagar / dev (Key: <code className="font-mono bg-slate-200/60 px-1 py-0.5 rounded text-[11px]">CASA57</code>)</span>
                 </div>
               </div>
             </div>
@@ -282,7 +465,7 @@ export default function MembersView() {
                       CASA Employee Portal
                     </h2>
                     <span className="bg-[#b8935a]/10 text-[#b8935a] border border-[#b8935a]/10 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Intranet Active
+                      {isAdmin ? 'Super Admin Mode' : 'Intranet Active'}
                     </span>
                   </div>
                   <span className="font-sans text-[12px] text-slate-400 flex items-center gap-1.5 mt-0.5">
@@ -305,53 +488,76 @@ export default function MembersView() {
             <div className="grid lg:grid-cols-3 gap-8">
               {/* Cinema Player Section */}
               <div className="lg:col-span-2 flex flex-col gap-6">
-                <div className="bg-slate-950 rounded-[32px] overflow-hidden shadow-lg border border-slate-900 aspect-video relative group">
-                  {/* YouTube Embed Player */}
-                  {/* Use activeVideo's youtubeId dynamically */}
-                  <iframe
-                    src={`https://www.youtube.com/embed/${activeVideo.youtubeId}?autoplay=1&rel=0&modestbranding=1&showinfo=0`}
-                    title={activeVideo.title}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    className="w-full h-full border-0 absolute inset-0"
-                  />
-                </div>
-
-                {/* Active Video Details Card */}
-                <div className="bg-white border border-slate-200/50 p-8 rounded-[32px] shadow-sm flex flex-col gap-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="bg-[#b8935a]/10 text-[#b8935a] border border-[#b8935a]/10 text-[10px] font-semibold px-3 py-1 rounded-full uppercase tracking-wider">
-                      {activeVideo.category}
-                    </span>
-                    <span className="font-sans text-[12px] text-slate-400 flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-slate-300" /> Playback: {activeVideo.duration} mins
-                    </span>
-                  </div>
-                  <h3 className="font-display text-2xl text-[#0a1b33] font-semibold tracking-tight">
-                    {activeVideo.title}
-                  </h3>
-                  <p className="font-sans text-[14px] text-slate-500 leading-relaxed pt-2 border-t border-slate-100">
-                    {activeVideo.description}
-                  </p>
-                  
-                  {/* Privacy Notice Box */}
-                  <div className="bg-slate-50/80 border border-slate-100 rounded-2xl p-4 flex items-start gap-3 mt-4 text-[12px] text-slate-400">
-                    <ShieldAlert className="w-4 h-4 shrink-0 text-[#b8935a] mt-0.5" />
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-bold text-slate-600 uppercase tracking-wide">CONFIDENTIALITY WARNING</span>
-                      <p>This video represents internal firm operations and is unlisted. Please do not share this URL or distribute video material to external entities.</p>
+                {activeVideo ? (
+                  <>
+                    <div className="bg-slate-950 rounded-[32px] overflow-hidden shadow-lg border border-slate-900 aspect-video relative group">
+                      <iframe
+                        src={`https://www.youtube.com/embed/${activeVideo.youtubeId}?autoplay=1&rel=0&modestbranding=1&showinfo=0`}
+                        title={activeVideo.title}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="w-full h-full border-0 absolute inset-0"
+                      />
                     </div>
+
+                    {/* Active Video Details Card */}
+                    <div className="bg-white border border-slate-200/50 p-8 rounded-[32px] shadow-sm flex flex-col gap-4">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="bg-[#b8935a]/10 text-[#b8935a] border border-[#b8935a]/10 text-[10px] font-semibold px-3 py-1 rounded-full uppercase tracking-wider">
+                          {activeVideo.category}
+                        </span>
+                        <span className="font-sans text-[12px] text-slate-400 flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-300" /> Playback: {activeVideo.duration} mins
+                        </span>
+                      </div>
+                      <h3 className="font-display text-2xl text-[#0a1b33] font-semibold tracking-tight">
+                        {activeVideo.title}
+                      </h3>
+                      <p className="font-sans text-[14px] text-slate-500 leading-relaxed pt-2 border-t border-slate-100">
+                        {activeVideo.description}
+                      </p>
+                      
+                      {/* Privacy Notice Box */}
+                      <div className="bg-slate-50/80 border border-slate-100 rounded-2xl p-4 flex items-start gap-3 mt-4 text-[12px] text-slate-400">
+                        <ShieldAlert className="w-4 h-4 shrink-0 text-[#b8935a] mt-0.5" />
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-bold text-slate-600 uppercase tracking-wide">CONFIDENTIALITY WARNING</span>
+                          <p>This video represents internal firm operations and is unlisted. Please do not share this URL or distribute video material to external entities.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="bg-white border border-slate-200/50 p-16 rounded-[32px] shadow-sm flex flex-col items-center justify-center text-center text-slate-400 font-sans italic">
+                    <AlertCircle className="w-12 h-12 text-slate-300 mb-4" />
+                    No training videos uploaded.
+                    {isAdmin && (
+                      <button onClick={openAddVideo} className="mt-4 bg-[#0a1b33] hover:bg-[#b8935a] text-white text-[12px] font-semibold px-4 py-2 rounded-full transition-all cursor-pointer flex items-center gap-1">
+                        <Plus className="w-3.5 h-3.5" /> Add First Video
+                      </button>
+                    )}
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Sidebar Videos Directory */}
               <div className="flex flex-col gap-6">
-                {/* Search Header */}
+                {/* Search & Add Header */}
                 <div className="bg-white border border-slate-200/50 p-6 rounded-[28px] shadow-sm flex flex-col gap-4">
-                  <h4 className="font-display text-[12px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
-                    Training Library
-                  </h4>
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                    <h4 className="font-display text-[12px] font-bold text-slate-400 uppercase tracking-widest">
+                      Training Library
+                    </h4>
+                    {isAdmin && (
+                      <button
+                        onClick={openAddVideo}
+                        className="bg-emerald-500 hover:bg-emerald-600 text-white p-1 rounded-full shadow-sm hover:shadow-md transition-all cursor-pointer"
+                        title="Upload New Video"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                   <div className="relative flex items-center">
                     <Search className="absolute left-4 w-4 h-4 text-slate-400" />
                     <input
@@ -368,35 +574,59 @@ export default function MembersView() {
                 <div className="flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-1">
                   {filteredVideos.length > 0 ? (
                     filteredVideos.map((video) => {
-                      const isActive = video.id === activeVideo.id;
+                      const isActive = activeVideo && video.id === activeVideo.id;
                       return (
-                        <button
+                        <div
                           key={video.id}
-                          onClick={() => setActiveVideo(video)}
-                          className={`w-full text-left p-5 rounded-[24px] border transition-all cursor-pointer flex gap-4 ${
+                          className={`w-full p-4 rounded-[24px] border transition-all flex items-center gap-4 ${
                             isActive
                               ? 'bg-white border-[#b8935a] shadow-md'
                               : 'bg-white/80 border-slate-200/40 hover:bg-white hover:border-slate-300 hover:shadow-sm'
                           }`}
                         >
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                            isActive
-                              ? 'bg-[#b8935a]/10 border-[#b8935a]/25 text-[#b8935a]'
-                              : 'bg-slate-50 border-slate-100 text-slate-400'
-                          }`}>
-                            <Play className="w-4 h-4 fill-current" />
-                          </div>
-                          <div className="flex flex-col gap-1 min-w-0">
-                            <span className="font-sans text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                              {video.category} • {video.duration} mins
-                            </span>
-                            <h5 className={`font-display text-[13.5px] font-semibold tracking-tight truncate ${
-                              isActive ? 'text-[#b8935a]' : 'text-[#0a1b33]'
+                          <button
+                            onClick={() => setActiveVideo(video)}
+                            className="flex-1 text-left flex gap-4 min-w-0 cursor-pointer"
+                          >
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                              isActive
+                                ? 'bg-[#b8935a]/10 border-[#b8935a]/25 text-[#b8935a]'
+                                : 'bg-slate-50 border-slate-100 text-slate-400'
                             }`}>
-                              {video.title}
-                            </h5>
-                          </div>
-                        </button>
+                              <Play className="w-4 h-4 fill-current" />
+                            </div>
+                            <div className="flex flex-col gap-1 min-w-0">
+                              <span className="font-sans text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                                {video.category} • {video.duration} mins
+                              </span>
+                              <h5 className={`font-display text-[13.5px] font-semibold tracking-tight truncate ${
+                                isActive ? 'text-[#b8935a]' : 'text-[#0a1b33]'
+                              }`}>
+                                {video.title}
+                              </h5>
+                            </div>
+                          </button>
+                          
+                          {/* Super Admin Manage Controls */}
+                          {isAdmin && (
+                            <div className="flex gap-1 border-l border-slate-100 pl-2 shrink-0">
+                              <button 
+                                onClick={() => openEditVideo(video)} 
+                                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-[#b8935a] transition-all cursor-pointer"
+                                title="Edit Details"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button 
+                                onClick={() => deleteVideo(video.id)} 
+                                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-rose-500 transition-all cursor-pointer"
+                                title="Delete Video"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       );
                     })
                   ) : (
@@ -410,54 +640,232 @@ export default function MembersView() {
 
             {/* Document Library Section */}
             <div className="bg-white border border-slate-200/50 p-8 rounded-[32px] shadow-sm flex flex-col gap-6">
-              <div className="border-b border-slate-100 pb-4">
-                <h3 className="font-display text-xl text-[#0a1b33] font-semibold tracking-tight">
-                  Intranet Document Repository
-                </h3>
-                <p className="font-sans text-[13px] text-slate-400 mt-1">
-                  Confidential document templates, audit schedules, and spreadsheets for employee operations.
-                </p>
+              <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="font-display text-xl text-[#0a1b33] font-semibold tracking-tight">
+                    Intranet Document Repository
+                  </h3>
+                  <p className="font-sans text-[13px] text-slate-400 mt-1">
+                    Confidential document templates, audit schedules, and spreadsheets for employee operations.
+                  </p>
+                </div>
+                {isAdmin && (
+                  <button
+                    onClick={openAddDoc}
+                    className="bg-[#0a1b33] hover:bg-[#b8935a] text-white font-display text-[12px] font-semibold px-4 py-2.5 rounded-full transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Document
+                  </button>
+                )}
               </div>
 
               {/* Document List Table */}
               <div className="overflow-x-auto w-full">
-                <table className="w-full text-left font-sans text-[13.5px]">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-                      <th className="pb-4 pl-2">Resource Name</th>
-                      <th className="pb-4">Format</th>
-                      <th className="pb-4">Size</th>
-                      <th className="pb-4">Revision Date</th>
-                      <th className="pb-4 text-right pr-2">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {documents.map((doc, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="py-4 pl-2 font-display text-[14px] font-semibold text-[#0a1b33] flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-slate-50 text-slate-400 border border-slate-100">
-                            <FileText className="w-4 h-4" />
-                          </div>
-                          {doc.name}
-                        </td>
-                        <td className="py-4 text-slate-500 font-medium">{doc.type}</td>
-                        <td className="py-4 text-slate-400">{doc.size}</td>
-                        <td className="py-4 text-slate-400">{doc.date}</td>
-                        <td className="py-4 text-right pr-2">
-                          <button
-                            onClick={() => alert(`Initiating mock download: ${doc.name}`)}
-                            className="inline-flex items-center gap-1.5 bg-slate-50 hover:bg-[#b8935a]/10 hover:text-[#b8935a] border border-slate-200/60 hover:border-[#b8935a]/25 text-slate-600 font-display text-[11px] font-bold px-3 py-1.5 rounded-full transition-all cursor-pointer active:scale-95"
-                          >
-                            <Download className="w-3 h-3" />
-                            <span>Download</span>
-                          </button>
-                        </td>
+                {documentsList.length > 0 ? (
+                  <table className="w-full text-left font-sans text-[13.5px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                        <th className="pb-4 pl-2">Resource Name</th>
+                        <th className="pb-4">Format</th>
+                        <th className="pb-4">Size</th>
+                        <th className="pb-4">Revision Date</th>
+                        <th className="pb-4 text-right pr-2">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {documentsList.map((doc, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-4 pl-2 font-display text-[14px] font-semibold text-[#0a1b33] flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-slate-50 text-slate-400 border border-slate-100">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            {doc.name}
+                          </td>
+                          <td className="py-4 text-slate-500 font-medium">{doc.type}</td>
+                          <td className="py-4 text-slate-400">{doc.size}</td>
+                          <td className="py-4 text-slate-400">{doc.date}</td>
+                          <td className="py-4 text-right pr-2">
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                onClick={() => alert(`Initiating mock download: ${doc.name}`)}
+                                className="inline-flex items-center gap-1.5 bg-slate-50 hover:bg-[#b8935a]/10 hover:text-[#b8935a] border border-slate-200/60 hover:border-[#b8935a]/25 text-slate-600 font-display text-[11px] font-bold px-3 py-1.5 rounded-full transition-all cursor-pointer active:scale-95"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Download</span>
+                              </button>
+                              
+                              {/* Super Admin Delete Document Control */}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => deleteDocument(idx)}
+                                  className="p-1.5 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-500 transition-all cursor-pointer border border-transparent hover:border-rose-100"
+                                  title="Delete Document"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="text-center text-slate-400 font-sans italic py-10">
+                    No documents uploaded in the intranet repository.
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* MODALS SECTION */}
+
+            {/* ADD/EDIT VIDEO MODAL */}
+            {showVideoModal && (
+              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-white rounded-[32px] border border-slate-200/60 shadow-xl w-full max-w-[500px] p-6 md:p-8 flex flex-col gap-4 relative"
+                >
+                  <button 
+                    onClick={() => setShowVideoModal(false)} 
+                    className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                  <h3 className="font-display text-xl font-bold text-[#0a1b33]">
+                    {editingVideoId ? 'Edit Intranet Video' : 'Add New Intranet Video'}
+                  </h3>
+                  
+                  <div className="flex flex-col gap-4 mt-2">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">Video Title</label>
+                      <input 
+                        type="text" 
+                        value={videoTitle} 
+                        onChange={e => setVideoTitle(e.target.value)} 
+                        placeholder="e.g. Q3 Auditing Guidelines" 
+                        className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">YouTube Video ID</label>
+                      <input 
+                        type="text" 
+                        value={videoYtId} 
+                        onChange={e => setVideoYtId(e.target.value)} 
+                        placeholder="e.g. yK7nC1E8u4g" 
+                        className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">Category</label>
+                        <input 
+                          type="text" 
+                          value={videoCategory} 
+                          onChange={e => setVideoCategory(e.target.value)} 
+                          placeholder="e.g. Audit & Assurance" 
+                          className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">Duration (e.g. 15:30)</label>
+                        <input 
+                          type="text" 
+                          value={videoDuration} 
+                          onChange={e => setVideoDuration(e.target.value)} 
+                          placeholder="e.g. 14:22" 
+                          className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">Description</label>
+                      <textarea 
+                        value={videoDescription} 
+                        onChange={e => setVideoDescription(e.target.value)} 
+                        rows={3} 
+                        placeholder="Detailed video training description..." 
+                        className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33] resize-none" 
+                      />
+                    </div>
+                  </div>
+                  
+                  <button 
+                    onClick={saveVideo} 
+                    className="w-full bg-[#0a1b33] hover:bg-[#b8935a] text-white text-[14px] font-semibold py-3.5 rounded-2xl transition-all cursor-pointer mt-4 flex items-center justify-center gap-1.5"
+                  >
+                    <Save className="w-4 h-4" /> 
+                    <span>Save Video Details</span>
+                  </button>
+                </motion.div>
+              </div>
+            )}
+
+            {/* ADD DOCUMENT MODAL */}
+            {showDocModal && (
+              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-white rounded-[32px] border border-slate-200/60 shadow-xl w-full max-w-[450px] p-6 md:p-8 flex flex-col gap-4 relative"
+                >
+                  <button 
+                    onClick={() => setShowDocModal(false)} 
+                    className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                  <h3 className="font-display text-xl font-bold text-[#0a1b33]">Add New Document</h3>
+                  
+                  <div className="flex flex-col gap-4 mt-2">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">Document Name</label>
+                      <input 
+                        type="text" 
+                        value={docName} 
+                        onChange={e => setDocName(e.target.value)} 
+                        placeholder="e.g. Audit Intakes Checklist" 
+                        className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">Format</label>
+                        <input 
+                          type="text" 
+                          value={docType} 
+                          onChange={e => setDocType(e.target.value)} 
+                          placeholder="e.g. PDF Document" 
+                          className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">Size (e.g. 1.2 MB)</label>
+                        <input 
+                          type="text" 
+                          value={docSize} 
+                          onChange={e => setDocSize(e.target.value)} 
+                          placeholder="e.g. 850 KB" 
+                          className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <button 
+                    onClick={saveDocument} 
+                    className="w-full bg-[#0a1b33] hover:bg-[#b8935a] text-white text-[14px] font-semibold py-3.5 rounded-2xl transition-all cursor-pointer mt-4 flex items-center justify-center gap-1.5"
+                  >
+                    <Save className="w-4 h-4" /> 
+                    <span>Save Document template</span>
+                  </button>
+                </motion.div>
+              </div>
+            )}
+
           </motion.div>
         )}
       </AnimatePresence>
