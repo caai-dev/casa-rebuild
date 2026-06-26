@@ -1,6 +1,7 @@
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 
 export default function Hero() {
+  const shouldReduceMotion = useReducedMotion();
   const handleScroll = (id: string) => {
     const element = document.getElementById(id);
     if (element) {
@@ -71,61 +72,48 @@ export default function Hero() {
           </motion.div>
 
           {/* Right Column: Premium Refined Animated Logo Visual */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="lg:col-span-5 flex items-center justify-center relative w-full h-[360px] lg:h-[500px]"
-          >
-            <div className="relative w-80 h-80 lg:w-[440px] lg:h-[440px] flex items-center justify-center" style={{ perspective: 1200 }}>
+          <div className="lg:col-span-5 flex items-center justify-center relative w-full h-[360px] lg:h-[500px]">
+            {/* Entrance Scale and Fade container */}
+            <motion.div
+              initial={shouldReduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              className="relative w-80 h-80 lg:w-[440px] lg:h-[440px] flex items-center justify-center"
+            >
               
               {/* Vibrant Gold & Navy Glow Background Blobs */}
-              <div className="absolute w-72 h-72 lg:w-96 lg:h-96 rounded-full bg-gradient-to-tr from-[#b8935a]/20 via-[#0a1b33]/10 to-[#b8935a]/5 blur-[80px] pointer-events-none" />
-              <div className="absolute w-48 h-48 rounded-full bg-[#ebd2aa]/15 blur-[50px] animate-pulse pointer-events-none" />
+              <div className="absolute w-72 h-72 lg:w-96 lg:h-96 rounded-full bg-gradient-to-tr from-[#b8935a]/10 via-[#0a1b33]/5 to-[#b8935a]/3 blur-[80px] pointer-events-none" />
 
-              {/* Outer Slow Rotating Orbital Ring 1 (Gold Audit Ring) */}
+              {/* Continuous Floating Container */}
               <motion.div
-                animate={{ rotateX: 360, rotateY: 180 }}
-                transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-                className="absolute w-80 h-80 lg:w-[400px] lg:h-[400px] border-2 border-[#b8935a]/25 rounded-full pointer-events-none shadow-[0_0_20px_rgba(184,147,90,0.05)]"
-                style={{ transformStyle: 'preserve-3d' }}
-              />
-
-              {/* Middle Slow Rotating Orbital Ring 2 (Navy Compass Ring) */}
-              <motion.div
-                animate={{ rotateY: 360, rotateZ: 180 }}
-                transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
-                className="absolute w-72 h-72 lg:w-[340px] lg:h-[340px] border border-dashed border-[#0a1b33]/25 rounded-full pointer-events-none"
-                style={{ transformStyle: 'preserve-3d' }}
-              />
-
-              {/* Inner Fast Rotating Orbital Ring 3 (Gold Accent Ring) */}
-              <motion.div
-                animate={{ rotateX: 180, rotateZ: 360 }}
-                transition={{ duration: 16, repeat: Infinity, ease: "linear" }}
-                className="absolute w-60 h-60 lg:w-[280px] lg:h-[280px] border border-[#ebd2aa]/35 rounded-full pointer-events-none shadow-[inset_0_0_10px_rgba(235,210,170,0.1)]"
-                style={{ transformStyle: 'preserve-3d' }}
-              />
-
-              {/* Central Floating Gold/Glass Crest Shield */}
-              <motion.div
-                animate={{ 
-                  y: [-12, 12, -12],
-                  rotateZ: [-2, 2, -2]
-                }}
+                animate={shouldReduceMotion ? { y: 0 } : { y: [-5, 5, -5] }}
                 transition={{ 
                   duration: 6, 
                   repeat: Infinity, 
                   ease: "easeInOut" 
                 }}
-                className="absolute w-52 h-52 lg:w-64 lg:h-64 rounded-[40px] bg-gradient-to-b from-[#0a1b33]/95 to-[#112440]/95 backdrop-blur-2xl border-2 border-[#b8935a]/60 shadow-[0_30px_70px_-15px_rgba(10,27,51,0.65),0_0_40px_rgba(184,147,90,0.25),inset_0_1px_1px_rgba(255,255,255,0.15)] flex flex-col items-center justify-center z-10 overflow-hidden"
+                className="relative w-52 h-52 lg:w-64 lg:h-64 rounded-[40px] bg-gradient-to-b from-[#0a1b33]/95 to-[#112440]/95 border-2 border-[#b8935a]/60 shadow-[0_30px_70px_-15px_rgba(10,27,51,0.65),0_0_40px_rgba(184,147,90,0.25),inset_0_1px_1px_rgba(255,255,255,0.15)] flex flex-col items-center justify-center z-10 overflow-hidden"
               >
                 {/* Gold Crest Backing Graphic Pattern */}
-                <div className="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#b8935a_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none" />
+                <div className="absolute inset-0 opacity-[0.02] bg-[radial-gradient(#b8935a_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none" />
 
-                {/* Golden SVG Monogram Crest */}
-                <div className="w-24 h-24 lg:w-28 lg:h-28 flex items-center justify-center relative">
-                  <svg viewBox="0 0 120 120" className="w-full h-full drop-shadow-[0_8px_20px_rgba(184,147,90,0.4)]">
+                {/* Slow Breathing Inner Glow */}
+                <motion.div
+                  animate={shouldReduceMotion ? { opacity: 0.25 } : { opacity: [0.15, 0.45, 0.15] }}
+                  transition={{ 
+                    duration: 4, 
+                    repeat: Infinity, 
+                    ease: "easeInOut" 
+                  }}
+                  className="absolute inset-0 rounded-[38px] pointer-events-none"
+                  style={{
+                    boxShadow: 'inset 0 0 25px rgba(184, 147, 90, 0.6)'
+                  }}
+                />
+
+                {/* New CASA SVG Logo: Globe + Checkmark + CA Monogram */}
+                <div className="w-28 h-28 lg:w-32 lg:h-32 flex items-center justify-center relative z-10">
+                  <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_20px_rgba(184,147,90,0.4)]">
                     <defs>
                       <linearGradient id="premiumGold" x1="0%" y1="0%" x2="100%" y2="100%">
                         <stop offset="0%" stopColor="#fff" stopOpacity="0.9" />
@@ -135,42 +123,80 @@ export default function Hero() {
                         <stop offset="100%" stopColor="#5c4520" />
                       </linearGradient>
                     </defs>
-                    
-                    {/* Double-Line Premium Shield crest */}
-                    <path
-                      d="M 60 10 L 102 34 L 102 78 L 60 105 L 18 78 L 18 34 Z"
+
+                    {/* Globe Outer Circle (White) */}
+                    <motion.path
+                      d="M 50 15 A 35 35 0 1 1 49.9 15 Z"
                       fill="none"
-                      stroke="url(#premiumGold)"
+                      stroke="#ffffff"
                       strokeWidth="2.5"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M 60 17 L 95 38 L 95 74 L 60 97 L 25 74 L 25 38 Z"
-                      fill="none"
-                      stroke="url(#premiumGold)"
-                      strokeWidth="1"
-                      strokeLinejoin="round"
-                      strokeDasharray="4 2"
-                      opacity="0.7"
+                      strokeLinecap="round"
+                      opacity="0.85"
+                      initial={shouldReduceMotion ? { pathLength: 1 } : { pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 1.2, delay: 0.3, ease: "easeInOut" }}
                     />
 
-                    {/* Highly Refined Interlocking C & A */}
-                    {/* Stylized 'C' with elegant slab terminal endings */}
-                    <path
-                      d="M 46 45 C 38 48, 38 62, 46 65 C 52 68, 58 68, 62 64"
+                    {/* Globe Longitudinal Ellipse (White) */}
+                    <motion.path
+                      d="M 50 15 A 15 35 0 1 1 49.9 15 Z"
                       fill="none"
-                      stroke="url(#premiumGold)"
-                      strokeWidth="5"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
                       strokeLinecap="round"
+                      opacity="0.45"
+                      initial={shouldReduceMotion ? { pathLength: 1 } : { pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 1.2, delay: 0.5, ease: "easeInOut" }}
                     />
-                    {/* Stylized 'A' interlocking with the 'C' */}
-                    <path
-                      d="M 54 70 L 66 38 L 78 70 M 56 60 L 76 60"
+
+                    {/* Monogram 'C' (Gold) */}
+                    <motion.path
+                      d="M 44 32 C 26 32, 22 42, 22 50 C 22 58, 26 68, 44 68"
                       fill="none"
                       stroke="url(#premiumGold)"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      initial={shouldReduceMotion ? { pathLength: 1 } : { pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 1.2, delay: 0.6, ease: "easeInOut" }}
+                    />
+
+                    {/* Monogram 'A' Left Leg (Gold) */}
+                    <motion.path
+                      d="M 60 22 L 44 76"
+                      fill="none"
+                      stroke="url(#premiumGold)"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      initial={shouldReduceMotion ? { pathLength: 1 } : { pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 1.2, delay: 0.7, ease: "easeInOut" }}
+                    />
+
+                    {/* Monogram 'A' Right Leg (Gold) */}
+                    <motion.path
+                      d="M 60 22 L 76 76"
+                      fill="none"
+                      stroke="url(#premiumGold)"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      initial={shouldReduceMotion ? { pathLength: 1 } : { pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 1.2, delay: 0.8, ease: "easeInOut" }}
+                    />
+
+                    {/* Checkmark Crossbar (White) */}
+                    <motion.path
+                      d="M 32 46 L 50 64 L 78 22"
+                      fill="none"
+                      stroke="#ffffff"
                       strokeWidth="5"
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      initial={shouldReduceMotion ? { pathLength: 1 } : { pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 1.2, delay: 0.9, ease: "easeInOut" }}
                     />
                   </svg>
                 </div>
@@ -184,35 +210,10 @@ export default function Hero() {
                     AUDIT GROUP
                   </div>
                 </div>
-              </motion.div>
 
-              {/* Orbiting Golden Star Particles (Bigger radius & count) */}
-              {[...Array(8)].map((_, i) => {
-                const angles = [0, 45, 90, 135, 180, 225, 270, 315];
-                const angle = angles[i];
-                const radius = 150; // Bigger radius
-                const x = Math.cos((angle * Math.PI) / 180) * radius;
-                const y = Math.sin((angle * Math.PI) / 180) * radius;
-                
-                return (
-                  <motion.div
-                    key={i}
-                    animate={{
-                      x: [x, Math.cos(((angle + 360) * Math.PI) / 180) * radius],
-                      y: [y, Math.sin(((angle + 360) * Math.PI) / 180) * radius],
-                    }}
-                    transition={{
-                      duration: 18 + i * 2,
-                      repeat: Infinity,
-                      ease: "linear"
-                    }}
-                    className="absolute w-2.5 h-2.5 rounded-full bg-gradient-to-r from-[#ebd2aa] to-[#b8935a] shadow-[0_0_12px_#b8935a] pointer-events-none"
-                    style={{ left: '50%', top: '50%', marginLeft: '-5px', marginTop: '-5px' }}
-                  />
-                );
-              })}
-            </div>
-          </motion.div>
+              </motion.div>
+            </motion.div>
+          </div>
 
         </div>
       </div>
