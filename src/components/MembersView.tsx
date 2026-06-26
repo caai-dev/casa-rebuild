@@ -369,7 +369,7 @@ export default function MembersView() {
                     <User className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="CASA241"
+                      placeholder="Enter your username"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       required
