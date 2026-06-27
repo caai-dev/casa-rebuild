@@ -24,6 +24,7 @@ if (!file_exists($dataDir)) {
 $librariesFile = $dataDir . '/libraries.json';
 $progressFile = $dataDir . '/progress.json';
 $uploadsDir = $dataDir . '/uploads';
+$usersFile = $dataDir . '/users.json';
 
 // Initialize uploads directory
 if (!file_exists($uploadsDir)) {
@@ -46,6 +47,17 @@ if (preg_match('/VITE_SUPER_ADMIN_KEY\s*=\s*(.*)/', $envContent, $matches)) {
 if (preg_match('/VITE_COMMON_ACCESS_KEY\s*=\s*(.*)/', $envContent, $matches)) {
     $commonKey = trim($matches[1]);
 }
+
+// Default users fallback (keeps CASA241 / 443357 functioning seamlessly)
+$defaultUsers = [
+  [
+    "username" => "CASA241",
+    "name" => "Default Member",
+    "password" => "443357",
+    "role" => "member",
+    "status" => "active"
+  ]
+];
 
 // Default libraries fallback
 $defaultLibraries = [
@@ -187,6 +199,9 @@ if (!file_exists($librariesFile)) {
 if (!file_exists($progressFile)) {
     file_put_contents($progressFile, json_encode([], JSON_PRETTY_PRINT));
 }
+if (!file_exists($usersFile)) {
+    file_put_contents($usersFile, json_encode($defaultUsers, JSON_PRETTY_PRINT));
+}
 
 // 1. GET Operation (Load Database / Proxy Download)
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -257,7 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     $action = $input['action'];
     
-    // Server-side login verification
+    // Server-side login verification (against users.json)
     if ($action === 'login') {
         if (!isset($input['username']) || !isset($input['access_key'])) {
             http_response_code(400);
@@ -278,22 +293,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         
-        // Standard user checks
-        if (preg_match('/^CASA\d+$/i', $username) && $accessKey === $commonKey) {
-            $progress = json_decode(file_get_contents($progressFile), true);
-            $userProgress = isset($progress[$username]) ? $progress[$username] : [
-                "completed_videos" => [],
-                "last_active" => date('Y-m-d\TH:i:s\Z')
-            ];
-            echo json_encode([
-                "success" => true, 
-                "role" => "member",
-                "progress" => $userProgress
-            ]);
+        // Search in users.json database
+        $users = json_decode(file_get_contents($usersFile), true);
+        $foundUser = null;
+        foreach ($users as $u) {
+            if (strcasecmp($u['username'], $username) === 0) {
+                $foundUser = $u;
+                break;
+            }
+        }
+        
+        if ($foundUser) {
+            if ($foundUser['status'] === 'pending') {
+                echo json_encode(["success" => false, "error" => "Your account is pending administrator approval."]);
+                exit;
+            }
+            if ($foundUser['status'] === 'revoked') {
+                echo json_encode(["success" => false, "error" => "Your account access has been suspended by the administrator."]);
+                exit;
+            }
+            if ($foundUser['password'] === $accessKey) {
+                $progress = json_decode(file_get_contents($progressFile), true);
+                $dbUsername = $foundUser['username'];
+                $userProgress = isset($progress[$dbUsername]) ? $progress[$dbUsername] : [
+                    "completed_videos" => [],
+                    "last_active" => date('Y-m-d\TH:i:s\Z')
+                ];
+                
+                echo json_encode([
+                    "success" => true, 
+                    "role" => "member",
+                    "username" => $dbUsername,
+                    "progress" => $userProgress
+                ]);
+                exit;
+            }
+        }
+        
+        echo json_encode(["success" => false, "error" => "Invalid Username or Access Key."]);
+        exit;
+    }
+    
+    // Self-registration (Sign up request)
+    if ($action === 'register') {
+        if (!isset($input['username']) || !isset($input['name']) || !isset($input['password'])) {
+            http_response_code(400);
+            echo json_encode(["error" => "Missing registration parameters"]);
+            exit;
+        }
+        $username = trim($input['username']);
+        $name = trim($input['name']);
+        $password = trim($input['password']);
+        
+        // Reserve admin names
+        $isAdminName = (
+            strcasecmp($username, 'sagar') === 0 || 
+            strcasecmp($username, 'dev') === 0 || 
+            strcasecmp($username, 'admin') === 0
+        );
+        if ($isAdminName) {
+            http_response_code(400);
+            echo json_encode(["error" => "Username reserved for administrator"]);
             exit;
         }
         
-        echo json_encode(["success" => false, "error" => "Invalid Username or Access Key"]);
+        $users = json_decode(file_get_contents($usersFile), true);
+        foreach ($users as $u) {
+            if (strcasecmp($u['username'], $username) === 0) {
+                http_response_code(400);
+                echo json_encode(["error" => "Username is already taken"]);
+                exit;
+            }
+        }
+        
+        $newUser = [
+            "username" => $username,
+            "name" => $name,
+            "password" => $password,
+            "role" => "member",
+            "status" => "pending"
+        ];
+        $users[] = $newUser;
+        file_put_contents($usersFile, json_encode($users, JSON_PRETTY_PRINT));
+        
+        echo json_encode(["success" => true, "message" => "Sign up request submitted! Please ask an administrator to approve your account."]);
         exit;
     }
     
@@ -355,6 +438,105 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'get_users_progress') {
         $progress = json_decode(file_get_contents($progressFile), true);
         echo json_encode(["success" => true, "progress" => $progress]);
+        exit;
+    }
+    
+    // Get all registered employees
+    if ($action === 'get_users') {
+        $users = json_decode(file_get_contents($usersFile), true);
+        echo json_encode(["success" => true, "users" => $users]);
+        exit;
+    }
+    
+    // Add user directly (Active)
+    if ($action === 'add_user') {
+        if (!isset($input['username']) || !isset($input['name']) || !isset($input['password'])) {
+            http_response_code(400);
+            echo json_encode(["error" => "Missing user parameters"]);
+            exit;
+        }
+        $username = trim($input['username']);
+        $name = trim($input['name']);
+        $password = trim($input['password']);
+        
+        $users = json_decode(file_get_contents($usersFile), true);
+        foreach ($users as $u) {
+            if (strcasecmp($u['username'], $username) === 0) {
+                http_response_code(400);
+                echo json_encode(["error" => "Username is already taken"]);
+                exit;
+            }
+        }
+        
+        $newUser = [
+            "username" => $username,
+            "name" => $name,
+            "password" => $password,
+            "role" => "member",
+            "status" => "active"
+        ];
+        $users[] = $newUser;
+        file_put_contents($usersFile, json_encode($users, JSON_PRETTY_PRINT));
+        
+        echo json_encode(["success" => true, "users" => $users]);
+        exit;
+    }
+    
+    // Suspend or approve a user
+    if ($action === 'update_user_status') {
+        if (!isset($input['username']) || !isset($input['status'])) {
+            http_response_code(400);
+            echo json_encode(["error" => "Missing username or status"]);
+            exit;
+        }
+        $username = trim($input['username']);
+        $status = trim($input['status']);
+        
+        $users = json_decode(file_get_contents($usersFile), true);
+        $found = false;
+        foreach ($users as &$u) {
+            if ($u['username'] === $username) {
+                $u['status'] = $status;
+                $found = true;
+                break;
+            }
+        }
+        
+        if (!$found) {
+            http_response_code(404);
+            echo json_encode(["error" => "User not found"]);
+            exit;
+        }
+        
+        file_put_contents($usersFile, json_encode($users, JSON_PRETTY_PRINT));
+        echo json_encode(["success" => true, "users" => $users]);
+        exit;
+    }
+    
+    // Delete user completely (deletes user profile and progress stats)
+    if ($action === 'delete_user') {
+        if (!isset($input['username'])) {
+            http_response_code(400);
+            echo json_encode(["error" => "Missing username"]);
+            exit;
+        }
+        $username = trim($input['username']);
+        $users = json_decode(file_get_contents($usersFile), true);
+        
+        $filtered = array_filter($users, function($u) use ($username) {
+            return $u['username'] !== $username;
+        });
+        $filtered = array_values($filtered);
+        file_put_contents($usersFile, json_encode($filtered, JSON_PRETTY_PRINT));
+        
+        // Wipe progress history
+        $progress = json_decode(file_get_contents($progressFile), true);
+        if (isset($progress[$username])) {
+            unset($progress[$username]);
+            file_put_contents($progressFile, json_encode($progress, JSON_PRETTY_PRINT));
+        }
+        
+        echo json_encode(["success" => true, "users" => $filtered]);
         exit;
     }
     

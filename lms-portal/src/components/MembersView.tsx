@@ -19,8 +19,7 @@ import {
   CheckSquare, 
   Square, 
   ExternalLink, 
-  Activity, 
-  BarChart2
+  Activity
 } from 'lucide-react';
 
 interface Resource {
@@ -51,6 +50,14 @@ interface UserProgress {
   last_active: string;
 }
 
+interface MemberAccount {
+  username: string;
+  name: string;
+  password?: string;
+  role: string;
+  status: 'active' | 'pending' | 'revoked';
+}
+
 function extractYoutubeId(input: string): string {
   const trimmed = input.trim();
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -62,11 +69,19 @@ function extractYoutubeId(input: string): string {
 }
 
 export default function MembersView() {
-  // Authentication states
+  // Authentication & Mode states
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSignupMode, setIsSignupMode] = useState(false);
+  const [signupSuccessMsg, setSignupSuccessMsg] = useState('');
+  
+  // Login / Signup Form fields
   const [username, setUsername] = useState('');
   const [accessKey, setAccessKey] = useState('');
+  const [signupName, setSignupName] = useState('');
+  const [signupUser, setSignupUser] = useState('');
+  const [signupPass, setSignupPass] = useState('');
+  
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [activeUsername, setActiveUsername] = useState('');
@@ -77,18 +92,22 @@ export default function MembersView() {
   const [activeVideo, setActiveVideo] = useState<Resource | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Progress states
+  // Progress & Admin User Directory States
   const [completedVideos, setCompletedVideos] = useState<string[]>([]);
   const [usersProgressLogs, setUsersProgressLogs] = useState<Record<string, UserProgress>>({});
+  const [employeesList, setEmployeesList] = useState<MemberAccount[]>([]);
 
-  // Navigation tabs for Admins: 'content' manages libraries, 'tracking' shows logs
+  // Navigation tabs for Admins: 'content' manages libraries, 'tracking' shows logs & members
   const [adminTab, setAdminTab] = useState<'content' | 'tracking'>('content');
 
-  // Modals & Form States
+  // Direct Employee Onboarding Inputs (Admin Panel)
+  const [newEmpName, setNewEmpName] = useState('');
+  const [newEmpUser, setNewEmpUser] = useState('');
+  const [newEmpPass, setNewEmpPass] = useState('');
+
+  // Modals & Library Form States
   const [showLibraryModal, setShowLibraryModal] = useState(false);
   const [showResourceModal, setShowResourceModal] = useState(false);
-
-  // Library Form Inputs
   const [editingLibId, setEditingLibId] = useState<string | null>(null);
   const [libName, setLibName] = useState('');
   const [libDesc, setLibDesc] = useState('');
@@ -126,6 +145,7 @@ export default function MembersView() {
         setIsAdmin(true);
         if (savedAdminKey) {
           fetchUsersProgress(savedAdminKey);
+          fetchEmployeesList(savedAdminKey);
         }
       }
     }
@@ -184,6 +204,25 @@ export default function MembersView() {
     .catch(err => console.error('Error fetching user tracking logs:', err));
   };
 
+  // Fetch registered user list (Admin only)
+  const fetchEmployeesList = (key: string) => {
+    fetch('/api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'get_users',
+        admin_key: key
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.users) {
+        setEmployeesList(data.users);
+      }
+    })
+    .catch(err => console.error('Error loading employee list:', err));
+  };
+
   // 2. Login Flow
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,20 +249,22 @@ export default function MembersView() {
           setIsLoggedIn(true);
           const isUserAdmin = data.role === 'admin';
           setIsAdmin(isUserAdmin);
-          setActiveUsername(formattedUsername);
+          const finalUser = data.username || formattedUsername;
+          setActiveUsername(finalUser);
           
           sessionStorage.setItem('casa_member_logged_in', 'true');
-          sessionStorage.setItem('casa_logged_username', formattedUsername);
+          sessionStorage.setItem('casa_logged_username', finalUser);
           sessionStorage.setItem('casa_is_admin', isUserAdmin ? 'true' : 'false');
           sessionStorage.setItem('casa_admin_key', cleanAccessKey);
 
           if (data.progress && data.progress.completed_videos) {
             setCompletedVideos(data.progress.completed_videos);
-            localStorage.setItem(`casa_progress_${formattedUsername}`, JSON.stringify(data.progress.completed_videos));
+            localStorage.setItem(`casa_progress_${finalUser}`, JSON.stringify(data.progress.completed_videos));
           }
 
           if (isUserAdmin) {
             fetchUsersProgress(cleanAccessKey);
+            fetchEmployeesList(cleanAccessKey);
           }
 
           setSubmitting(false);
@@ -236,55 +277,56 @@ export default function MembersView() {
       }
     } catch (err) {
       console.warn('Authentication API offline, using client-side fallback:', err);
+      setError('Connection error. Authentication failed.');
+      setSubmitting(false);
+    }
+  };
+
+  // 2A. Signup Flow
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSignupSuccessMsg('');
+    setSubmitting(true);
+
+    const formattedName = signupName.trim();
+    const formattedUser = signupUser.trim();
+    const formattedPass = signupPass.trim();
+
+    if (!formattedName || !formattedUser || !formattedPass) {
+      setError('Please fill in all signup fields.');
+      setSubmitting(false);
+      return;
     }
 
-    // Fallback authentication (Local Dev offline mode)
-    const commonKey = import.meta.env.VITE_COMMON_ACCESS_KEY || '443357';
-    const superAdminKey = import.meta.env.VITE_SUPER_ADMIN_KEY || 'CASA57';
+    try {
+      const response = await fetch('/api.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'register',
+          name: formattedName,
+          username: formattedUser,
+          password: formattedPass
+        })
+      });
 
-    const isAdminUser = (
-      formattedUsername.toLowerCase() === 'sagar' || 
-      formattedUsername.toLowerCase() === 'dev' || 
-      formattedUsername.toLowerCase() === 'admin'
-    );
-    const isSuperAdminLogin = isAdminUser && cleanAccessKey === superAdminKey;
-    const match = formattedUsername.match(/^CASA\d+$/);
-    const isStandardLogin = match && cleanAccessKey === commonKey;
-
-    setTimeout(() => {
-      if (isSuperAdminLogin) {
-        setIsLoggedIn(true);
-        setIsAdmin(true);
-        setActiveUsername(formattedUsername);
-        sessionStorage.setItem('casa_member_logged_in', 'true');
-        sessionStorage.setItem('casa_logged_username', formattedUsername);
-        sessionStorage.setItem('casa_is_admin', 'true');
-        sessionStorage.setItem('casa_admin_key', cleanAccessKey);
-        
-        const localProg = localStorage.getItem(`casa_progress_${formattedUsername}`);
-        if (localProg) setCompletedVideos(JSON.parse(localProg));
-      } else if (isStandardLogin) {
-        setIsLoggedIn(true);
-        setIsAdmin(false);
-        setActiveUsername(formattedUsername);
-        sessionStorage.setItem('casa_member_logged_in', 'true');
-        sessionStorage.setItem('casa_logged_username', formattedUsername);
-        sessionStorage.setItem('casa_is_admin', 'false');
-        sessionStorage.setItem('casa_admin_key', cleanAccessKey);
-
-        const localProg = localStorage.getItem(`casa_progress_${formattedUsername}`);
-        if (localProg) setCompletedVideos(JSON.parse(localProg));
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setSignupSuccessMsg(data.message || 'Sign up requested successfully!');
+        setSignupName('');
+        setSignupUser('');
+        setSignupPass('');
+        setIsSignupMode(false);
       } else {
-        if (isAdminUser && cleanAccessKey !== superAdminKey) {
-          setError('Incorrect Super Admin Key.');
-        } else if (match && cleanAccessKey !== commonKey) {
-          setError('Incorrect Common Access Key.');
-        } else {
-          setError('Invalid Username or Credentials. standard accounts must be CASA followed by numbers (e.g. CASA241) and admins must be sagar/dev.');
-        }
+        setError(data.error || 'Failed to submit registration request.');
       }
+    } catch (err) {
+      console.error('Signup error:', err);
+      setError('Unable to register at this time. Check connection.');
+    } finally {
       setSubmitting(false);
-    }, 500);
+    }
   };
 
   const handleLogout = () => {
@@ -295,6 +337,7 @@ export default function MembersView() {
     setCompletedVideos([]);
     setUsername('');
     setAccessKey('');
+    setSignupSuccessMsg('');
   };
 
   // 3. Progress Tracking Actions (Standard Users check/uncheck videos)
@@ -341,7 +384,6 @@ export default function MembersView() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check size limit: 15 MB
     const maxSize = 15 * 1024 * 1024;
     if (file.size > maxSize) {
       setFileError('File size exceeds the 15 MB limit. Please select a smaller file.');
@@ -351,7 +393,6 @@ export default function MembersView() {
 
     setSelectedFile(file);
     
-    // Automatically set the document title if it is currently empty
     if (!resTitle) {
       const baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
       setResTitle(baseName.replace(/_/g, ' ').replace(/-/g, ' '));
@@ -418,20 +459,6 @@ export default function MembersView() {
       } else {
         alert('Error saving library: ' + (data.error || 'Unknown error'));
       }
-    })
-    .catch(err => {
-      console.error('Error saving library:', err);
-      const updated = [...librariesList];
-      const idx = updated.findIndex(l => l.id === slugId);
-      if (idx > -1) {
-        updated[idx] = { ...updated[idx], name: libName, description: libDesc };
-      } else {
-        updated.push({ id: slugId, name: libName, description: libDesc, resources: [] });
-      }
-      setLibrariesList(updated);
-      const match = updated.find(l => l.id === slugId);
-      if (match) setActiveLibrary(match);
-      setShowLibraryModal(false);
     });
   };
 
@@ -458,17 +485,6 @@ export default function MembersView() {
           setActiveLibrary(null);
           setActiveVideo(null);
         }
-      }
-    })
-    .catch(err => {
-      console.error('Error deleting library:', err);
-      const updated = librariesList.filter(l => l.id !== id);
-      setLibrariesList(updated);
-      if (updated.length > 0) {
-        setActiveLibrary(updated[0]);
-      } else {
-        setActiveLibrary(null);
-        setActiveVideo(null);
       }
     });
   };
@@ -519,7 +535,6 @@ export default function MembersView() {
         return;
       }
 
-      // If we are editing metadata (renaming) but NOT uploading a new file
       if (editingResource && !selectedFile) {
         const updatedDoc = {
           ...editingResource,
@@ -547,7 +562,6 @@ export default function MembersView() {
         return;
       }
 
-      // File upload scenario
       const formData = new FormData();
       formData.append('action', 'upload_doc');
       formData.append('admin_key', adminKey);
@@ -643,26 +657,6 @@ export default function MembersView() {
       } else {
         alert('Failed to save resource: ' + (data.error || 'Unknown error'));
       }
-    })
-    .catch(err => {
-      console.error('Error saving resource:', err);
-      const updated = [...librariesList];
-      const libIdx = updated.findIndex(l => l.id === activeLibrary.id);
-      if (libIdx > -1) {
-        if (!updated[libIdx].resources) updated[libIdx].resources = [];
-        const resIdx = updated[libIdx].resources.findIndex(r => r.id === resId);
-        if (resIdx > -1) {
-          updated[libIdx].resources[resIdx] = newResource;
-        } else {
-          updated[libIdx].resources.push(newResource);
-        }
-        setLibrariesList(updated);
-        setActiveLibrary(updated[libIdx]);
-        if (resourceType === 'video' && (!activeVideo || activeVideo.id === resId)) {
-          setActiveVideo(newResource);
-        }
-      }
-      setShowResourceModal(false);
     });
   };
 
@@ -694,21 +688,93 @@ export default function MembersView() {
           }
         }
       }
+    });
+  };
+
+  // 5. Admin Employee Account Actions (Direct Onboard, Suspend, Resume, Approve, Delete)
+  
+  const handleAddEmployee = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newEmpName.trim();
+    const cleanUser = newEmpUser.trim();
+    const cleanPass = newEmpPass.trim();
+
+    if (!cleanName || !cleanUser || !cleanPass) {
+      alert('Please fill in Name, Username, and Password to add employee.');
+      return;
+    }
+
+    const adminKey = sessionStorage.getItem('casa_admin_key') || '';
+    fetch('/api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'add_user',
+        admin_key: adminKey,
+        name: cleanName,
+        username: cleanUser,
+        password: cleanPass
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.users) {
+        setEmployeesList(data.users);
+        setNewEmpName('');
+        setNewEmpUser('');
+        setNewEmpPass('');
+        alert(`Account created successfully for ${cleanName}!`);
+      } else {
+        alert('Failed to create account: ' + (data.error || 'Unknown error'));
+      }
     })
     .catch(err => {
-      console.error('Error deleting resource:', err);
-      const updated = [...librariesList];
-      const libIdx = updated.findIndex(l => l.id === activeLibrary.id);
-      if (libIdx > -1) {
-        updated[libIdx].resources = updated[libIdx].resources.filter(r => r.id !== resId);
-        setLibrariesList(updated);
-        setActiveLibrary(updated[libIdx]);
-        if (activeVideo && activeVideo.id === resId) {
-          const firstVideo = updated[libIdx].resources.find(r => r.type === 'video');
-          setActiveVideo(firstVideo || null);
-        }
-      }
+      console.error('Error adding employee:', err);
+      alert('Server communication error.');
     });
+  };
+
+  const handleUpdateUserStatus = (targetUsername: string, newStatus: 'active' | 'revoked') => {
+    const adminKey = sessionStorage.getItem('casa_admin_key') || '';
+    fetch('/api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update_user_status',
+        admin_key: adminKey,
+        username: targetUsername,
+        status: newStatus
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.users) {
+        setEmployeesList(data.users);
+      }
+    })
+    .catch(err => console.error('Status toggle error:', err));
+  };
+
+  const handleDeleteUser = (targetUsername: string) => {
+    if (!confirm(`Are you sure you want to permanently delete user "${targetUsername}" and all their training progress logs?`)) return;
+    const adminKey = sessionStorage.getItem('casa_admin_key') || '';
+    
+    fetch('/api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'delete_user',
+        admin_key: adminKey,
+        username: targetUsername
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.users) {
+        setEmployeesList(data.users);
+      }
+    })
+    .catch(err => console.error('Delete user error:', err));
   };
 
   // Search filtering
@@ -733,15 +799,19 @@ export default function MembersView() {
 
   const { videos: activeVideos, docs: activeDocs, links: activeLinks } = getFilteredResources();
 
+  // Separate pending requests from active members
+  const pendingRequests = employeesList.filter(e => e.status === 'pending');
+  const activeMembers = employeesList.filter(e => e.status === 'active' || e.status === 'revoked');
+
   return (
     <div className="w-full min-h-[85vh] flex flex-col justify-start items-center">
       <AnimatePresence mode="wait">
         {!isLoggedIn ? (
           // ==========================================
-          // 1. LOGIN INTERFACE
+          // 1. LOGIN / SIGNUP INTERFACES
           // ==========================================
           <motion.div
-            key="login"
+            key={isSignupMode ? 'signup' : 'login'}
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -30 }}
@@ -754,74 +824,169 @@ export default function MembersView() {
                 <Lock className="w-7 h-7" />
               </div>
               <h1 className="font-display text-3xl font-bold text-[#0a1b33] tracking-tight">
-                CASA Training LMS
+                {isSignupMode ? 'Request LMS Profile' : 'CASA Training LMS'}
               </h1>
               <p className="font-sans text-[13px] text-slate-400 mt-2 max-w-sm">
-                Secure employees and administrator training dashboard. Please enter your portal key.
+                {isSignupMode 
+                  ? 'Request employee access. Your profile requires administrator approval before logging in.'
+                  : 'Secure employee and administrator training dashboard. Please sign in.'}
               </p>
             </div>
 
-            {/* Login Card Container */}
+            {/* Main Form Box Container */}
             <div className="w-full bg-white rounded-[32px] border border-slate-200/50 p-8 shadow-[0_20px_50px_rgba(0,0,0,0.02)] relative overflow-hidden">
               <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#b8935a]/10 to-transparent rounded-bl-full pointer-events-none" />
 
-              <form onSubmit={handleLogin} className="flex flex-col gap-5">
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-display text-[11px] font-bold text-slate-400 uppercase tracking-widest pl-1">
-                    Username
-                  </label>
-                  <div className="relative flex items-center">
-                    <User className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
+              {signupSuccessMsg && (
+                <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 text-[13px] leading-relaxed rounded-2xl p-4 mb-4 flex items-start gap-2.5">
+                  <CheckSquare className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 fill-emerald-100" />
+                  <span>{signupSuccessMsg}</span>
+                </div>
+              )}
+
+              {isSignupMode ? (
+                // ==========================================
+                // 1A. SIGNUP REQUEST FORM
+                // ==========================================
+                <form onSubmit={handleSignup} className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-display text-[10.5px] font-bold text-slate-400 uppercase tracking-widest pl-1">
+                      Full Name
+                    </label>
                     <input
                       type="text"
-                      placeholder="e.g. CASA241 or sagar"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="e.g. Amit Sharma"
+                      value={signupName}
+                      onChange={(e) => setSignupName(e.target.value)}
                       required
-                      className="w-full font-sans text-[14px] bg-slate-50 border border-slate-200/60 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
+                      className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
                     />
                   </div>
-                </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-display text-[11px] font-bold text-slate-400 uppercase tracking-widest pl-1">
-                    Access Key
-                  </label>
-                  <div className="relative flex items-center">
-                    <Key className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <div className="flex flex-col gap-1">
+                    <label className="font-display text-[10.5px] font-bold text-slate-400 uppercase tracking-widest pl-1">
+                      Choose Username
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. CASA789"
+                      value={signupUser}
+                      onChange={(e) => setSignupUser(e.target.value)}
+                      required
+                      className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="font-display text-[10.5px] font-bold text-slate-400 uppercase tracking-widest pl-1">
+                      Account Password
+                    </label>
                     <input
                       type="password"
-                      placeholder="••••••••••••"
-                      value={accessKey}
-                      onChange={(e) => setAccessKey(e.target.value)}
+                      placeholder="••••••••"
+                      value={signupPass}
+                      onChange={(e) => setSignupPass(e.target.value)}
                       required
-                      className="w-full font-sans text-[14px] bg-slate-50 border border-slate-200/60 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
+                      className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
                     />
                   </div>
-                </div>
 
-                {error && (
-                  <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 flex items-start gap-2.5 text-rose-600 text-[13px] leading-relaxed">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{error}</span>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-[#0a1b33] text-white font-display text-[14px] font-semibold py-4 rounded-2xl shadow-md transition-all hover:bg-[#b8935a] active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 mt-2"
-                >
-                  {submitting ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      <span>Verifying Portal Access...</span>
-                    </>
-                  ) : (
-                    <span>Enter Portal</span>
+                  {error && (
+                    <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 flex items-start gap-2 text-rose-600 text-[12px] leading-relaxed">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
                   )}
-                </button>
-              </form>
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full bg-[#0a1b33] text-white font-display text-[13.5px] font-semibold py-3.5 rounded-2xl shadow-md transition-all hover:bg-[#b8935a] active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 mt-2"
+                  >
+                    {submitting ? 'Submitting Registration...' : 'Submit Signup Request'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setIsSignupMode(false); setError(''); }}
+                    className="w-full text-slate-400 hover:text-[#0a1b33] font-display text-[12px] font-semibold mt-1 transition-colors cursor-pointer"
+                  >
+                    Back to Login
+                  </button>
+                </form>
+              ) : (
+                // ==========================================
+                // 1B. SIGN IN FORM
+                // ==========================================
+                <form onSubmit={handleLogin} className="flex flex-col gap-5">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-display text-[11px] font-bold text-slate-400 uppercase tracking-widest pl-1">
+                      Username
+                    </label>
+                    <div className="relative flex items-center">
+                      <User className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Username (e.g. CASA241)"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        required
+                        className="w-full font-sans text-[14px] bg-slate-50 border border-slate-200/60 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-display text-[11px] font-bold text-slate-400 uppercase tracking-widest pl-1">
+                      Access Password
+                    </label>
+                    <div className="relative flex items-center">
+                      <Key className="absolute left-4 w-4 h-4 text-slate-400 pointer-events-none" />
+                      <input
+                        type="password"
+                        placeholder="••••••••••••"
+                        value={accessKey}
+                        onChange={(e) => setAccessKey(e.target.value)}
+                        required
+                        className="w-full font-sans text-[14px] bg-slate-50 border border-slate-200/60 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-[#b8935a] focus:bg-white transition-all text-[#0a1b33]"
+                      />
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 flex items-start gap-2.5 text-rose-600 text-[13px] leading-relaxed">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full bg-[#0a1b33] text-white font-display text-[14px] font-semibold py-4 rounded-2xl shadow-md transition-all hover:bg-[#b8935a] active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 mt-2"
+                  >
+                    {submitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Verifying Portal Access...</span>
+                      </>
+                    ) : (
+                      <span>Enter Portal</span>
+                    )}
+                  </button>
+
+                  <div className="flex flex-col items-center mt-2 border-t border-slate-100 pt-4">
+                    <span className="text-[11px] text-slate-400 font-sans">New Employee?</span>
+                    <button
+                      type="button"
+                      onClick={() => { setIsSignupMode(true); setError(''); setSignupSuccessMsg(''); }}
+                      className="text-[#b8935a] hover:text-[#0a1b33] font-display text-[13px] font-bold mt-1 transition-colors cursor-pointer"
+                    >
+                      Sign Up & Request LMS Access
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </motion.div>
         ) : (
@@ -876,7 +1041,7 @@ export default function MembersView() {
                       }`}
                     >
                       <Activity className="w-3.5 h-3.5" />
-                      <span>User Progress</span>
+                      <span>Employees & Progress</span>
                     </button>
                   </div>
                 )}
@@ -893,64 +1058,217 @@ export default function MembersView() {
 
             {isAdmin && adminTab === 'tracking' ? (
               // ==========================================
-              // 2A. ADMIN DASHBOARD: USER TRACKING RECORDS
+              // 2A. ADMIN PANEL: EMPLOYEES & PROGRESS MANAGEMENT
               // ==========================================
-              <div className="bg-white border border-slate-200/50 p-8 rounded-[32px] shadow-sm flex flex-col gap-6">
-                <div>
-                  <h3 className="font-display text-xl text-[#0a1b33] font-semibold tracking-tight flex items-center gap-2">
-                    <BarChart2 className="w-5 h-5 text-[#b8935a]" /> User Progress Tracking Logs
-                  </h3>
-                  <p className="font-sans text-[13px] text-slate-400 mt-1">
-                    Live review of training completions, watched videos, and logins across your team.
-                  </p>
+              <div className="grid lg:grid-cols-3 gap-6">
+                
+                {/* Left Column: Direct Account Creation */}
+                <div className="lg:col-span-1 bg-white border border-slate-200/50 p-6 rounded-[28px] shadow-sm flex flex-col gap-4 self-start">
+                  <div>
+                    <h4 className="font-display text-[15px] font-bold text-[#0a1b33] tracking-tight">
+                      Onboard New Employee
+                    </h4>
+                    <p className="font-sans text-[11px] text-slate-400 mt-0.5">
+                      Directly create an active account for team members.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleAddEmployee} className="flex flex-col gap-3.5">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Full Name</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Rahul Verma"
+                        value={newEmpName}
+                        onChange={(e) => setNewEmpName(e.target.value)}
+                        className="w-full font-sans text-[13px] bg-slate-50 border border-slate-200/60 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">LMS Username</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. CASA102"
+                        value={newEmpUser}
+                        onChange={(e) => setNewEmpUser(e.target.value)}
+                        className="w-full font-sans text-[13px] bg-slate-50 border border-slate-200/60 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Access Password</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Pass102"
+                        value={newEmpPass}
+                        onChange={(e) => setNewEmpPass(e.target.value)}
+                        className="w-full font-sans text-[13px] bg-slate-50 border border-slate-200/60 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full bg-[#0a1b33] hover:bg-[#b8935a] text-white text-[12.5px] font-semibold py-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm mt-1"
+                    >
+                      <Plus className="w-4 h-4" /> Create Account
+                    </button>
+                  </form>
                 </div>
 
-                <div className="overflow-x-auto w-full">
-                  {Object.keys(usersProgressLogs).length > 0 ? (
-                    <table className="w-full text-left font-sans text-[13.5px]">
-                      <thead>
-                        <tr className="border-b border-slate-100 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-                          <th className="pb-4 pl-2">Employee Account</th>
-                          <th className="pb-4">Last Activity Timestamp</th>
-                          <th className="pb-4">Completed Videos Count</th>
-                          <th className="pb-4">Completed Video IDs</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {Object.entries(usersProgressLogs).map(([usr, prog]) => {
-                          const dateObj = new Date(prog.last_active);
-                          const dateStr = dateObj.toLocaleString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          });
-                          return (
-                            <tr key={usr} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="py-4 pl-2 font-display text-[14px] font-semibold text-[#0a1b33] flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-full bg-[#b8935a]/10 text-[#b8935a] flex items-center justify-center font-bold text-[11px]">
-                                  {usr.substring(0, 4)}
-                                </div>
-                                {usr}
-                              </td>
-                              <td className="py-4 text-slate-500 font-medium">{prog.last_active ? dateStr : 'N/A'}</td>
-                              <td className="py-4 font-bold text-[#b8935a]">
-                                {prog.completed_videos?.length || 0} videos finished
-                              </td>
-                              <td className="py-4 text-slate-400 text-[12px] truncate max-w-[400px]" title={prog.completed_videos?.join(', ')}>
-                                {prog.completed_videos?.length > 0 ? prog.completed_videos.join(', ') : 'None'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <div className="text-center text-slate-400 font-sans text-[13px] italic py-10">
-                      No user progress records found. Logs populate when members start checking video modules.
+                {/* Right Column: Approvals and User Directories */}
+                <div className="lg:col-span-2 flex flex-col gap-6">
+                  
+                  {/* Approval requests list */}
+                  {pendingRequests.length > 0 && (
+                    <div className="bg-emerald-50/40 border border-emerald-100/60 p-6 rounded-[28px] shadow-sm flex flex-col gap-4">
+                      <div>
+                        <h4 className="font-display text-[15px] font-bold text-emerald-800 tracking-tight flex items-center gap-1.5">
+                          <CheckSquare className="w-4.5 h-4.5 text-emerald-600 fill-emerald-100" />
+                          Pending Registration Requests ({pendingRequests.length})
+                        </h4>
+                        <p className="font-sans text-[11px] text-emerald-600/80 mt-0.5">
+                          Review self-registration submissions waiting for approval.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col gap-2.5">
+                        {pendingRequests.map((req) => (
+                          <div
+                            key={req.username}
+                            className="bg-white border border-emerald-100/40 p-4 rounded-2xl flex items-center justify-between gap-4"
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-display text-[13.5px] font-bold text-emerald-950">{req.name}</span>
+                              <span className="font-sans text-[11px] text-emerald-600/80 mt-0.5">
+                                Requested User ID: <strong>{req.username}</strong> • Password: <code>{req.password}</code>
+                              </span>
+                            </div>
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleUpdateUserStatus(req.username, 'active')}
+                                className="bg-emerald-500 hover:bg-emerald-600 text-white font-display text-[11px] font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleDeleteUser(req.username)}
+                                className="bg-rose-500 hover:bg-rose-600 text-white font-display text-[11px] font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
+
+                  {/* Team Members Database List */}
+                  <div className="bg-white border border-slate-200/50 p-6 rounded-[28px] shadow-sm flex flex-col gap-4">
+                    <div>
+                      <h4 className="font-display text-[16px] font-bold text-[#0a1b33] tracking-tight">
+                        Registered Team Members Directory ({activeMembers.length})
+                      </h4>
+                      <p className="font-sans text-[12px] text-slate-400 mt-0.5">
+                        Manage passwords, access statuses, and track individual training progress stats.
+                      </p>
+                    </div>
+
+                    <div className="overflow-x-auto w-full">
+                      {activeMembers.length > 0 ? (
+                        <table className="w-full text-left font-sans text-[12.5px]">
+                          <thead>
+                            <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
+                              <th className="pb-3 pl-2">Name & ID</th>
+                              <th className="pb-3">Access Password</th>
+                              <th className="pb-3">LMS Completion Stats</th>
+                              <th className="pb-3">Status</th>
+                              <th className="pb-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {activeMembers.map((member) => {
+                              const prog = usersProgressLogs[member.username];
+                              const finishedCount = prog?.completed_videos?.length || 0;
+                              
+                              let statusBadge = (
+                                <span className="bg-emerald-50 text-emerald-600 border border-emerald-100/50 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                  Active
+                                </span>
+                              );
+                              if (member.status === 'revoked') {
+                                statusBadge = (
+                                  <span className="bg-rose-50 text-rose-600 border border-rose-100/50 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                    Suspended
+                                  </span>
+                                );
+                              }
+
+                              return (
+                                <tr key={member.username} className="hover:bg-slate-50/50 transition-colors">
+                                  <td className="py-3.5 pl-2">
+                                    <div className="flex flex-col">
+                                      <span className="font-display text-[13px] font-bold text-[#0a1b33]">{member.name}</span>
+                                      <span className="text-[10px] text-slate-400 mt-0.5">Username: {member.username}</span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3.5 font-mono text-[12px] text-slate-500">{member.password || 'N/A'}</td>
+                                  <td className="py-3.5">
+                                    <div className="flex flex-col">
+                                      <span className="font-bold text-[#b8935a]">{finishedCount} lessons</span>
+                                      {prog?.last_active && (
+                                        <span className="text-[9.5px] text-slate-400 mt-0.5">
+                                          Active: {new Date(prog.last_active).toLocaleDateString()}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-3.5">{statusBadge}</td>
+                                  <td className="py-3.5 text-right">
+                                    <div className="flex gap-1 justify-end">
+                                      {member.status === 'active' ? (
+                                        <button
+                                          onClick={() => handleUpdateUserStatus(member.username, 'revoked')}
+                                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-amber-500"
+                                          title="Suspend account access"
+                                        >
+                                          <AlertCircle className="w-4 h-4" />
+                                        </button>
+                                      ) : (
+                                        <button
+                                          onClick={() => handleUpdateUserStatus(member.username, 'active')}
+                                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-emerald-500"
+                                          title="Resume account access"
+                                        >
+                                          <CheckSquare className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                      
+                                      <button
+                                        onClick={() => handleDeleteUser(member.username)}
+                                        className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-rose-500"
+                                        title="Delete user profile"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="text-center text-slate-400 font-sans italic py-10">
+                          No team members registered.
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+
                 </div>
+
               </div>
             ) : (
               // ==========================================
@@ -1202,7 +1520,7 @@ export default function MembersView() {
                                           {video.title}
                                         </h5>
                                         <span className="font-sans text-[10.5px] text-slate-400 flex items-center gap-1">
-                                          <Clock className="w-3 h-3 text-slate-300" /> {video.duration} mins
+                                          <Clock className="w-3.5 h-3.5 text-slate-300" /> {video.duration} mins
                                         </span>
                                       </div>
                                     </button>
@@ -1269,7 +1587,7 @@ export default function MembersView() {
                                     <h5 className="font-display text-[13px] font-bold text-[#0a1b33] truncate" title={doc.name}>
                                       {doc.name}
                                     </h5>
-                                    <span className="font-sans text-[10px] text-slate-400 block mt-0.5">
+                                    <span className="font-sans text-[10px] text-slate-400 block mt-0.5 font-medium">
                                       {doc.format} • {doc.size}
                                     </span>
                                   </div>
@@ -1368,7 +1686,7 @@ export default function MembersView() {
                                         className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-[#b8935a]"
                                         title="Edit details"
                                       >
-                                        <Edit3 className="w-3 h-3" />
+                                        <Edit3 className="w-3.5 h-3.5" />
                                       </button>
                                       <button
                                         onClick={() => deleteResource(link.id)}
@@ -1633,7 +1951,7 @@ export default function MembersView() {
                     {submitting ? (
                       <>
                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        <span>Uploading document...</span>
+                        <span>Saving resource...</span>
                       </>
                     ) : (
                       <>
