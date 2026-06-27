@@ -23,6 +23,12 @@ if (!file_exists($dataDir)) {
 
 $librariesFile = $dataDir . '/libraries.json';
 $progressFile = $dataDir . '/progress.json';
+$uploadsDir = $dataDir . '/uploads';
+
+// Initialize uploads directory
+if (!file_exists($uploadsDir)) {
+    mkdir($uploadsDir, 0755, true);
+}
 
 // Auto-generate default .env on the server if it doesn't exist in the persistent dir
 $envFile = $dataDir . '/.env';
@@ -61,7 +67,7 @@ $defaultLibraries = [
         "id" => "excel-d1",
         "type" => "doc",
         "name" => "Staff Travel & Expense Reimbursement Sheet",
-        "format" => "Excel (XLSX)",
+        "format" => "Excel Spreadsheet",
         "size" => "1.2 MB",
         "date" => "Mar 10, 2026"
       ]
@@ -132,7 +138,7 @@ $defaultLibraries = [
       [
         "id" => "audit-v2",
         "type" => "video",
-        "youtubeId" => "yK7nC1E8u4g", // Audit standards walkthrough
+        "youtubeId" => "yK7nC1E8u4g",
         "title" => "CASA Auditing Standards & Checklist Walkthrough",
         "category" => "Audit & Assurance",
         "duration" => "14:22",
@@ -142,7 +148,7 @@ $defaultLibraries = [
         "id" => "audit-d1",
         "type" => "doc",
         "name" => "CASA Audit Audit Working Papers Template",
-        "format" => "Word (DOCX)",
+        "format" => "Word Document",
         "size" => "2.4 MB",
         "date" => "Jan 12, 2026"
       ],
@@ -182,8 +188,48 @@ if (!file_exists($progressFile)) {
     file_put_contents($progressFile, json_encode([], JSON_PRETTY_PRINT));
 }
 
-// 1. GET Operation (Load Database)
+// 1. GET Operation (Load Database / Proxy Download)
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    // Secure download streaming handler
+    if (isset($_GET['action']) && $_GET['action'] === 'download') {
+        if (!isset($_GET['file'])) {
+            http_response_code(400);
+            echo "Missing file parameter";
+            exit;
+        }
+        
+        $file = basename($_GET['file']);
+        $filePath = $uploadsDir . '/' . $file;
+        
+        if (!file_exists($filePath)) {
+            http_response_code(404);
+            echo "File not found";
+            exit;
+        }
+        
+        // Clean output buffering
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+        
+        $mime = mime_content_type($filePath);
+        header("Content-Type: " . ($mime ? $mime : "application/octet-stream"));
+        
+        $downloadName = isset($_GET['name']) ? $_GET['name'] : $file;
+        $ext = pathinfo($file, PATHINFO_EXTENSION);
+        if ($ext && !preg_match('/\.' . preg_quote($ext, '/') . '$/i', $downloadName)) {
+            $downloadName .= '.' . $ext;
+        }
+        
+        header("Content-Disposition: attachment; filename=\"" . rawurlencode($downloadName) . "\"");
+        header("Content-Length: " . filesize($filePath));
+        header("Cache-Control: private, max-age=0, must-revalidate");
+        header("Pragma: public");
+        
+        readfile($filePath);
+        exit;
+    }
+
     $libs = json_decode(file_get_contents($librariesFile), true);
     echo json_encode([
         "libraries" => $libs
@@ -191,10 +237,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     exit;
 }
 
-// 2. POST Operations (CRUD & Auth)
+// 2. POST Operations (CRUD & Auth & File Uploads)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $rawInput = file_get_contents('php://input');
-    $input = json_decode($rawInput, true);
+    // Check if it is a multipart/form-data request
+    $isMultipart = (strpos(isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : '', 'multipart/form-data') !== false);
+    
+    if ($isMultipart) {
+        $input = $_POST;
+    } else {
+        $rawInput = file_get_contents('php://input');
+        $input = json_decode($rawInput, true);
+    }
     
     if (!$input || !isset($input['action'])) {
         http_response_code(400);
@@ -244,7 +297,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Fetch individual progress (Standard Users)
+    // Fetch individual progress
     if ($action === 'get_progress') {
         if (!isset($input['username'])) {
             http_response_code(400);
@@ -262,7 +315,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Save progress updates (Standard Users)
+    // Save progress updates
     if ($action === 'save_progress') {
         if (!isset($input['username']) || !isset($input['completed_videos'])) {
             http_response_code(400);
@@ -298,7 +351,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Get entire users list tracking log (Admin only)
+    // Get entire users list tracking log
     if ($action === 'get_users_progress') {
         $progress = json_decode(file_get_contents($progressFile), true);
         echo json_encode(["success" => true, "progress" => $progress]);
@@ -344,6 +397,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = $input['id'];
         $libs = json_decode(file_get_contents($librariesFile), true);
         
+        // Physically delete files of deleted resources first
+        foreach ($libs as $l) {
+            if ($l['id'] === $id && isset($l['resources'])) {
+                foreach ($l['resources'] as $r) {
+                    if ($r['type'] === 'doc' && isset($r['fileName'])) {
+                        $filePath = $uploadsDir . '/' . basename($r['fileName']);
+                        if (file_exists($filePath)) {
+                            unlink($filePath);
+                        }
+                    }
+                }
+            }
+        }
+        
         $filtered = array_filter($libs, function($l) use ($id) {
             return $l['id'] !== $id;
         });
@@ -351,6 +418,106 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         file_put_contents($librariesFile, json_encode($filtered, JSON_PRETTY_PRINT));
         echo json_encode(["success" => true, "libraries" => $filtered]);
+        exit;
+    }
+    
+    // Upload Document Action (Multipart Form-Data)
+    if ($action === 'upload_doc') {
+        if (!isset($input['library_id']) || !isset($input['doc_name'])) {
+            http_response_code(400);
+            echo json_encode(["error" => "Missing library ID or document name"]);
+            exit;
+        }
+        
+        $libId = $input['library_id'];
+        $docName = trim($input['doc_name']);
+        
+        if (!isset($_FILES['file'])) {
+            http_response_code(400);
+            echo json_encode(["error" => "No file uploaded"]);
+            exit;
+        }
+        
+        $fileError = $_FILES['file']['error'];
+        if ($fileError !== UPLOAD_ERR_OK) {
+            http_response_code(500);
+            echo json_encode(["error" => "File upload failed with error code: " . $fileError]);
+            exit;
+        }
+        
+        $fileSize = $_FILES['file']['size'];
+        $maxSize = 15 * 1024 * 1024; // 15 MB Cap
+        if ($fileSize > $maxSize) {
+            http_response_code(400);
+            echo json_encode(["error" => "File size exceeds 15 MB limit"]);
+            exit;
+        }
+        
+        $origName = $_FILES['file']['name'];
+        $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+        
+        // Generate safe unique filename to prevent collisions
+        $safeName = preg_replace('/[^a-zA-Z0-9_\.-]/', '_', pathinfo($origName, PATHINFO_FILENAME));
+        $savedFileName = $safeName . '_' . time() . '.' . $ext;
+        $destPath = $uploadsDir . '/' . $savedFileName;
+        
+        if (!move_uploaded_file($_FILES['file']['tmp_name'], $destPath)) {
+            http_response_code(500);
+            echo json_encode(["error" => "Failed to save file on server"]);
+            exit;
+        }
+        
+        // Determine format based on extension
+        $formatType = 'File';
+        if ($ext === 'pdf') $formatType = 'PDF Document';
+        elseif (in_array($ext, ['xlsx', 'xls'])) $formatType = 'Excel Spreadsheet';
+        elseif (in_array($ext, ['docx', 'doc'])) $formatType = 'Word Document';
+        elseif ($ext === 'csv') $formatType = 'CSV Spreadsheet';
+        elseif (in_array($ext, ['png', 'jpg', 'jpeg', 'svg', 'gif'])) $formatType = 'Image File';
+        
+        // Calculate file size string
+        $sizeStr = '';
+        if ($fileSize >= 1024 * 1024) {
+            $sizeStr = round($fileSize / (1024 * 1024), 1) . ' MB';
+        } elseif ($fileSize >= 1024) {
+            $sizeStr = round($fileSize / 1024, 0) . ' KB';
+        } else {
+            $sizeStr = $fileSize . ' B';
+        }
+        
+        $newDoc = [
+            "id" => "doc-" . time(),
+            "type" => "doc",
+            "name" => $docName,
+            "fileName" => $savedFileName,
+            "format" => $formatType,
+            "size" => $sizeStr,
+            "date" => date('M d, Y')
+        ];
+        
+        $libs = json_decode(file_get_contents($librariesFile), true);
+        $libFound = false;
+        
+        foreach ($libs as &$l) {
+            if ($l['id'] === $libId) {
+                $libFound = true;
+                if (!isset($l['resources'])) {
+                    $l['resources'] = [];
+                }
+                $l['resources'][] = $newDoc;
+                break;
+            }
+        }
+        
+        if (!$libFound) {
+            unlink($destPath);
+            http_response_code(404);
+            echo json_encode(["error" => "Library not found"]);
+            exit;
+        }
+        
+        file_put_contents($librariesFile, json_encode($libs, JSON_PRETTY_PRINT));
+        echo json_encode(["success" => true, "libraries" => $libs]);
         exit;
     }
     
@@ -415,6 +582,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($l['id'] === $libId) {
                 $libFound = true;
                 if (isset($l['resources'])) {
+                    // Physical clean up if resource is a document
+                    foreach ($l['resources'] as $r) {
+                        if ($r['id'] === $resId && $r['type'] === 'doc' && isset($r['fileName'])) {
+                            $filePath = $uploadsDir . '/' . basename($r['fileName']);
+                            if (file_exists($filePath)) {
+                                unlink($filePath);
+                            }
+                        }
+                    }
+                    
                     $filtered = array_filter($l['resources'], function($r) use ($resId) {
                         return $r['id'] !== $resId;
                     });
