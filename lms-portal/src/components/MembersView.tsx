@@ -36,6 +36,7 @@ interface Resource {
   size?: string; // doc size
   date?: string; // doc revision date
   url?: string; // link url
+  fileName?: string; // doc persistent filename on server
 }
 
 interface Library {
@@ -100,9 +101,11 @@ export default function MembersView() {
   const [resCategory, setResCategory] = useState(''); // Video specific
   const [resDuration, setResDuration] = useState(''); // Video specific
   const [resDesc, setResDesc] = useState(''); // Video specific
-  const [resFormat, setResFormat] = useState(''); // Doc specific
-  const [resSize, setResSize] = useState(''); // Doc specific
   const [resUrl, setResUrl] = useState(''); // Link specific
+
+  // File Upload Specific States
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState('');
 
   // 1. Initial Load effect
   useEffect(() => {
@@ -116,7 +119,6 @@ export default function MembersView() {
       setIsLoggedIn(true);
       if (storedUser) {
         setActiveUsername(storedUser);
-        // Load user progress
         const localProg = localStorage.getItem(`casa_progress_${storedUser}`);
         if (localProg) setCompletedVideos(JSON.parse(localProg));
       }
@@ -143,7 +145,6 @@ export default function MembersView() {
       })
       .catch(err => {
         console.error('Error loading library database, falling back to local defaults:', err);
-        // Fallback to localStorage or default placeholder structure if API offline
         const storedLibs = localStorage.getItem('casa_libraries_db');
         if (storedLibs) {
           const parsed = JSON.parse(storedLibs);
@@ -260,7 +261,6 @@ export default function MembersView() {
         sessionStorage.setItem('casa_is_admin', 'true');
         sessionStorage.setItem('casa_admin_key', cleanAccessKey);
         
-        // Load local progress
         const localProg = localStorage.getItem(`casa_progress_${formattedUsername}`);
         if (localProg) setCompletedVideos(JSON.parse(localProg));
       } else if (isStandardLogin) {
@@ -335,6 +335,38 @@ export default function MembersView() {
     };
   };
 
+  // File selection change and validation
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFileError('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check size limit: 15 MB
+    const maxSize = 15 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setFileError('File size exceeds the 15 MB limit. Please select a smaller file.');
+      setSelectedFile(null);
+      return;
+    }
+
+    setSelectedFile(file);
+    
+    // Automatically set the document title if it is currently empty
+    if (!resTitle) {
+      const baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+      setResTitle(baseName.replace(/_/g, ' ').replace(/-/g, ' '));
+    }
+  };
+
+  // Document downloading action (Streams from proxy endpoint or mock alert)
+  const handleDownload = (doc: Resource) => {
+    if (doc.fileName) {
+      window.open(`/api.php?action=download&file=${encodeURIComponent(doc.fileName)}&name=${encodeURIComponent(doc.name || '')}`, '_blank');
+    } else {
+      alert(`Initiating mock download of default template: ${doc.name}`);
+    }
+  };
+
   // 4. Admin Content Operations (Libraries & Resources)
 
   // Libraries CRUD
@@ -389,7 +421,6 @@ export default function MembersView() {
     })
     .catch(err => {
       console.error('Error saving library:', err);
-      // Client-side fallback if server offline
       const updated = [...librariesList];
       const idx = updated.findIndex(l => l.id === slugId);
       if (idx > -1) {
@@ -446,13 +477,13 @@ export default function MembersView() {
   const openAddResource = (type: 'video' | 'doc' | 'link') => {
     setResourceType(type);
     setEditingResource(null);
+    setSelectedFile(null);
+    setFileError('');
     setResTitle('');
     setResYtId('');
     setResCategory('');
     setResDuration('');
     setResDesc('');
-    setResFormat('');
-    setResSize('');
     setResUrl('');
     setShowResourceModal(true);
   };
@@ -460,13 +491,13 @@ export default function MembersView() {
   const openEditResource = (resource: Resource) => {
     setResourceType(resource.type);
     setEditingResource(resource);
+    setSelectedFile(null);
+    setFileError('');
     setResTitle(resource.title || resource.name || '');
     setResYtId(resource.youtubeId || '');
     setResCategory(resource.category || '');
     setResDuration(resource.duration || '');
     setResDesc(resource.description || '');
-    setResFormat(resource.format || '');
-    setResSize(resource.size || '');
     setResUrl(resource.url || '');
     setShowResourceModal(true);
   };
@@ -480,6 +511,79 @@ export default function MembersView() {
 
     const adminKey = sessionStorage.getItem('casa_admin_key') || '';
     const resId = editingResource?.id || `res-${Date.now()}`;
+
+    // A. DOCUMENT UPLOAD FLOW (Multipart Form-Data)
+    if (resourceType === 'doc') {
+      if (!editingResource && !selectedFile) {
+        alert('Please select a file to upload.');
+        return;
+      }
+
+      // If we are editing metadata (renaming) but NOT uploading a new file
+      if (editingResource && !selectedFile) {
+        const updatedDoc = {
+          ...editingResource,
+          name: resTitle
+        };
+        fetch('/api.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save_resource',
+            admin_key: adminKey,
+            library_id: activeLibrary.id,
+            resource: updatedDoc
+          })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.libraries) {
+            setLibrariesList(data.libraries);
+            const match = data.libraries.find((l: any) => l.id === activeLibrary.id);
+            if (match) setActiveLibrary(match);
+            setShowResourceModal(false);
+          }
+        });
+        return;
+      }
+
+      // File upload scenario
+      const formData = new FormData();
+      formData.append('action', 'upload_doc');
+      formData.append('admin_key', adminKey);
+      formData.append('library_id', activeLibrary.id);
+      formData.append('doc_name', resTitle);
+      if (selectedFile) {
+        formData.append('file', selectedFile);
+      }
+
+      setSubmitting(true);
+      fetch('/api.php', {
+        method: 'POST',
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+        setSubmitting(false);
+        if (data.success && data.libraries) {
+          setLibrariesList(data.libraries);
+          const match = data.libraries.find((l: any) => l.id === activeLibrary.id);
+          if (match) setActiveLibrary(match);
+          setShowResourceModal(false);
+          setSelectedFile(null);
+        } else {
+          alert('Failed to upload document: ' + (data.error || 'Unknown error'));
+        }
+      })
+      .catch(err => {
+        setSubmitting(false);
+        console.error('Error uploading document:', err);
+        alert('Failed to upload file to the server.');
+      });
+      return;
+    }
+
+    // B. VIDEO AND EXTERNAL LINK FLOW (Standard JSON)
     let newResource: Resource = {
       id: resId,
       type: resourceType
@@ -497,23 +601,6 @@ export default function MembersView() {
         category: resCategory,
         duration: resDuration,
         description: resDesc
-      };
-    } else if (resourceType === 'doc') {
-      if (!resFormat || !resSize) {
-        alert('Please fill in format and size (e.g. PDF, 2.5 MB).');
-        return;
-      }
-      const today = new Date().toLocaleDateString('en-US', {
-        month: 'short',
-        day: '2-digit',
-        year: 'numeric'
-      });
-      newResource = {
-        ...newResource,
-        name: resTitle,
-        format: resFormat,
-        size: resSize,
-        date: today
       };
     } else if (resourceType === 'link') {
       if (!resUrl) {
@@ -545,7 +632,6 @@ export default function MembersView() {
         if (match) {
           setActiveLibrary(match);
           if (resourceType === 'video') {
-            // Update active player if it's the edited video
             if (activeVideo && activeVideo.id === resId) {
               setActiveVideo(newResource);
             } else if (!activeVideo) {
@@ -560,7 +646,6 @@ export default function MembersView() {
     })
     .catch(err => {
       console.error('Error saving resource:', err);
-      // Fallback
       const updated = [...librariesList];
       const libIdx = updated.findIndex(l => l.id === activeLibrary.id);
       if (libIdx > -1) {
@@ -861,7 +946,7 @@ export default function MembersView() {
                       </tbody>
                     </table>
                   ) : (
-                    <div className="text-center text-slate-400 font-sans italic py-10">
+                    <div className="text-center text-slate-400 font-sans text-[13px] italic py-10">
                       No user progress records found. Logs populate when members start checking video modules.
                     </div>
                   )}
@@ -885,7 +970,7 @@ export default function MembersView() {
                       {isAdmin && (
                         <button
                           onClick={openAddLibrary}
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white p-1 rounded-full shadow-sm hover:shadow-md transition-all cursor-pointer"
+                          className="bg-emerald-50 hover:bg-emerald-600 text-white p-1 rounded-full shadow-sm hover:shadow-md transition-all cursor-pointer"
                           title="Add New Library Section"
                         >
                           <Plus className="w-4 h-4" />
@@ -1039,12 +1124,12 @@ export default function MembersView() {
                               >
                                 {completedVideos.includes(activeVideo.id) ? (
                                   <>
-                                    <CheckSquare className="w-4 h-4 fill-current text-[#b8935a]" />
+                                    <CheckSquare className="w-4.5 h-4.5 fill-current text-[#b8935a]" />
                                     <span>Completed Lesson</span>
                                   </>
                                 ) : (
                                   <>
-                                    <Square className="w-4 h-4 text-slate-400" />
+                                    <Square className="w-4.5 h-4.5 text-slate-300" />
                                     <span>Mark as Completed</span>
                                   </>
                                 )}
@@ -1130,14 +1215,14 @@ export default function MembersView() {
                                           className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-[#b8935a]"
                                           title="Edit details"
                                         >
-                                          <Edit3 className="w-3 h-3" />
+                                          <Edit3 className="w-3.5 h-3.5" />
                                         </button>
                                         <button
                                           onClick={() => deleteResource(video.id)}
                                           className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-rose-500"
                                           title="Delete video"
                                         >
-                                          <Trash2 className="w-3 h-3" />
+                                          <Trash2 className="w-3.5 h-3.5" />
                                         </button>
                                       </div>
                                     )}
@@ -1191,7 +1276,7 @@ export default function MembersView() {
 
                                   {/* Download button */}
                                   <button
-                                    onClick={() => alert(`Initiating template download: ${doc.name}`)}
+                                    onClick={() => handleDownload(doc)}
                                     className="p-1.5 hover:bg-[#b8935a]/10 hover:text-[#b8935a] border border-slate-200/60 rounded-lg text-slate-500 cursor-pointer shrink-0"
                                     title="Download File"
                                   >
@@ -1206,14 +1291,14 @@ export default function MembersView() {
                                         className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-[#b8935a]"
                                         title="Edit details"
                                       >
-                                        <Edit3 className="w-3 h-3" />
+                                        <Edit3 className="w-3.5 h-3.5" />
                                       </button>
                                       <button
                                         onClick={() => deleteResource(doc.id)}
                                         className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-rose-500"
                                         title="Delete Document"
                                       >
-                                        <Trash2 className="w-3 h-3" />
+                                        <Trash2 className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
                                   )}
@@ -1259,7 +1344,7 @@ export default function MembersView() {
                                     <h5 className="font-display text-[13px] font-bold text-[#0a1b33] truncate" title={link.name}>
                                       {link.name}
                                     </h5>
-                                    <span className="font-sans text-[10px] text-slate-400 block mt-0.5 truncate">
+                                    <span className="font-sans text-[10px] text-slate-400 block mt-0.5 truncate font-medium">
                                       {link.url}
                                     </span>
                                   </div>
@@ -1290,7 +1375,7 @@ export default function MembersView() {
                                         className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-rose-500"
                                         title="Delete Link"
                                       >
-                                        <Trash2 className="w-3 h-3" />
+                                        <Trash2 className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
                                   )}
@@ -1400,7 +1485,7 @@ export default function MembersView() {
                   {!editingResource && (
                     <div className="grid grid-cols-3 bg-slate-50 border border-slate-200/60 p-1 rounded-xl mt-1">
                       <button
-                        onClick={() => setResourceType('video')}
+                        onClick={() => { setResourceType('video'); setSelectedFile(null); setFileError(''); }}
                         className={`py-2 rounded-lg font-display text-[11px] font-semibold transition-all cursor-pointer ${
                           resourceType === 'video' ? 'bg-white shadow-sm text-[#b8935a]' : 'text-slate-500'
                         }`}
@@ -1408,7 +1493,7 @@ export default function MembersView() {
                         Video Lecture
                       </button>
                       <button
-                        onClick={() => setResourceType('doc')}
+                        onClick={() => { setResourceType('doc'); setSelectedFile(null); setFileError(''); }}
                         className={`py-2 rounded-lg font-display text-[11px] font-semibold transition-all cursor-pointer ${
                           resourceType === 'doc' ? 'bg-white shadow-sm text-[#b8935a]' : 'text-slate-500'
                         }`}
@@ -1416,7 +1501,7 @@ export default function MembersView() {
                         Document
                       </button>
                       <button
-                        onClick={() => setResourceType('link')}
+                        onClick={() => { setResourceType('link'); setSelectedFile(null); setFileError(''); }}
                         className={`py-2 rounded-lg font-display text-[11px] font-semibold transition-all cursor-pointer ${
                           resourceType === 'link' ? 'bg-white shadow-sm text-[#b8935a]' : 'text-slate-500'
                         }`}
@@ -1489,29 +1574,39 @@ export default function MembersView() {
                       </>
                     )}
 
-                    {/* DOCUMENT SPECIAL FIELDS */}
+                    {/* DOCUMENT SPECIAL FIELDS (REAL FILE UPLOADS) */}
                     {resourceType === 'doc' && (
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-3">
                         <div className="flex flex-col gap-1.5">
-                          <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">Format Type</label>
-                          <input 
-                            type="text" 
-                            value={resFormat} 
-                            onChange={e => setResFormat(e.target.value)} 
-                            placeholder="e.g. PDF Document or Excel Sheet" 
-                            className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
-                          />
+                          <label className="text-[11.5px] font-bold text-slate-400 uppercase tracking-wider pl-1">
+                            Upload Document File (Max 15 MB)
+                          </label>
+                          
+                          <div className="relative border-2 border-dashed border-slate-200/80 rounded-2xl p-6 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100/50 transition-all cursor-pointer group min-h-[120px]">
+                            <input 
+                              type="file" 
+                              onChange={handleFileChange}
+                              accept=".pdf,.xlsx,.xls,.docx,.doc,.csv,.png,.jpg,.jpeg"
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" 
+                            />
+                            <Download className="w-8 h-8 text-slate-400 group-hover:text-[#b8935a] transition-colors mb-2" />
+                            <span className="font-sans text-[12.5px] font-semibold text-slate-600 text-center px-4 truncate max-w-full">
+                              {selectedFile ? selectedFile.name : 'Choose file or drag here'}
+                            </span>
+                            <span className="font-sans text-[10px] text-slate-400 mt-1">
+                              {selectedFile 
+                                ? `Calculated size: ${selectedFile.size >= 1024 * 1024 ? (selectedFile.size / (1024 * 1024)).toFixed(1) + ' MB' : Math.round(selectedFile.size / 1024) + ' KB'}` 
+                                : 'PDF, Word, Excel, CSV up to 15 MB limit'}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">File Size</label>
-                          <input 
-                            type="text" 
-                            value={resSize} 
-                            onChange={e => setResSize(e.target.value)} 
-                            placeholder="e.g. 1.2 MB or 850 KB" 
-                            className="w-full font-sans text-[13.5px] bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-3 focus:outline-none focus:border-[#b8935a] focus:bg-white text-[#0a1b33]" 
-                          />
-                        </div>
+
+                        {fileError && (
+                          <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 text-rose-600 text-[12px] flex items-start gap-2.5 leading-relaxed">
+                            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                            <span>{fileError}</span>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1532,10 +1627,20 @@ export default function MembersView() {
 
                   <button 
                     onClick={saveResource} 
-                    className="w-full bg-[#0a1b33] hover:bg-[#b8935a] text-white text-[14px] font-semibold py-3.5 rounded-2xl transition-all cursor-pointer mt-4 flex items-center justify-center gap-1.5"
+                    disabled={submitting}
+                    className="w-full bg-[#0a1b33] hover:bg-[#b8935a] text-white text-[14px] font-semibold py-3.5 rounded-2xl transition-all cursor-pointer mt-4 flex items-center justify-center gap-1.5 disabled:bg-slate-300 disabled:cursor-not-allowed"
                   >
-                    <Save className="w-4 h-4" /> 
-                    <span>Save Resource Item</span>
+                    {submitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Uploading document...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" /> 
+                        <span>Save Resource Item</span>
+                      </>
+                    )}
                   </button>
                 </motion.div>
               </div>
