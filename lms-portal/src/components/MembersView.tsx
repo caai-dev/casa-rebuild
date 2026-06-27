@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Lock, 
@@ -19,7 +19,9 @@ import {
   CheckSquare, 
   Square, 
   ExternalLink, 
-  Activity
+  Activity,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface Resource {
@@ -96,6 +98,7 @@ export default function MembersView() {
   const [completedVideos, setCompletedVideos] = useState<string[]>([]);
   const [usersProgressLogs, setUsersProgressLogs] = useState<Record<string, UserProgress>>({});
   const [employeesList, setEmployeesList] = useState<MemberAccount[]>([]);
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
   // Navigation tabs for Admins: 'content' manages libraries, 'tracking' shows logs & members
   const [adminTab, setAdminTab] = useState<'content' | 'tracking'>('content');
@@ -1204,56 +1207,134 @@ export default function MembersView() {
                                 );
                               }
 
+                              const isExpanded = expandedUser === member.username;
+
                               return (
-                                <tr key={member.username} className="hover:bg-slate-50/50 transition-colors">
-                                  <td className="py-3.5 pl-2">
-                                    <div className="flex flex-col">
-                                      <span className="font-display text-[13px] font-bold text-[#0a1b33]">{member.name}</span>
-                                      <span className="text-[10px] text-slate-400 mt-0.5">Username: {member.username}</span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3.5 font-mono text-[12px] text-slate-500">{member.password || 'N/A'}</td>
-                                  <td className="py-3.5">
-                                    <div className="flex flex-col">
-                                      <span className="font-bold text-[#b8935a]">{finishedCount} lessons</span>
-                                      {prog?.last_active && (
-                                        <span className="text-[9.5px] text-slate-400 mt-0.5">
-                                          Active: {new Date(prog.last_active).toLocaleDateString()}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="py-3.5">{statusBadge}</td>
-                                  <td className="py-3.5 text-right">
-                                    <div className="flex gap-1 justify-end">
-                                      {member.status === 'active' ? (
+                                <Fragment key={member.username}>
+                                  <tr 
+                                    className={`hover:bg-slate-50/50 transition-colors cursor-pointer ${isExpanded ? 'bg-slate-50/40' : ''}`}
+                                    onClick={() => setExpandedUser(isExpanded ? null : member.username)}
+                                  >
+                                    <td className="py-3.5 pl-2">
+                                      <div className="flex flex-col">
+                                        <span className="font-display text-[13px] font-bold text-[#0a1b33]">{member.name}</span>
+                                        <span className="text-[10px] text-slate-400 mt-0.5">Username: {member.username}</span>
+                                      </div>
+                                    </td>
+                                    <td className="py-3.5 font-mono text-[12px] text-slate-500">{member.password || 'N/A'}</td>
+                                    <td className="py-3.5">
+                                      <div className="flex flex-col">
+                                        <span className="font-bold text-[#b8935a]">{finishedCount} lessons</span>
+                                        {prog?.last_active && (
+                                          <span className="text-[9.5px] text-slate-400 mt-0.5">
+                                            Active: {new Date(prog.last_active).toLocaleDateString()}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="py-3.5">{statusBadge}</td>
+                                    <td className="py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
+                                      <div className="flex gap-1 justify-end">
+                                        {/* Toggle Expand details button */}
                                         <button
-                                          onClick={() => handleUpdateUserStatus(member.username, 'revoked')}
-                                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-amber-500"
-                                          title="Suspend account access"
+                                          onClick={() => setExpandedUser(isExpanded ? null : member.username)}
+                                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-[#b8935a] transition-all"
+                                          title="View Progress Details"
                                         >
-                                          <AlertCircle className="w-4 h-4" />
+                                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                         </button>
-                                      ) : (
+
+                                        {member.status === 'active' ? (
+                                          <button
+                                            onClick={() => handleUpdateUserStatus(member.username, 'revoked')}
+                                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-amber-500"
+                                            title="Suspend account access"
+                                          >
+                                            <AlertCircle className="w-4 h-4" />
+                                          </button>
+                                        ) : (
+                                          <button
+                                            onClick={() => handleUpdateUserStatus(member.username, 'active')}
+                                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-emerald-500"
+                                            title="Resume account access"
+                                          >
+                                            <CheckSquare className="w-4 h-4" />
+                                          </button>
+                                        )}
+                                        
                                         <button
-                                          onClick={() => handleUpdateUserStatus(member.username, 'active')}
-                                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-emerald-500"
-                                          title="Resume account access"
+                                          onClick={() => handleDeleteUser(member.username)}
+                                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-rose-500"
+                                          title="Delete user profile"
                                         >
-                                          <CheckSquare className="w-4 h-4" />
+                                          <Trash2 className="w-4 h-4" />
                                         </button>
-                                      )}
-                                      
-                                      <button
-                                        onClick={() => handleDeleteUser(member.username)}
-                                        className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-rose-500"
-                                        title="Delete user profile"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  {isExpanded && (
+                                    <tr className="bg-slate-50/30">
+                                      <td colSpan={5} className="p-4 border-t border-b border-slate-100/80">
+                                        <div className="bg-white border border-slate-200/50 p-5 rounded-[22px] shadow-sm flex flex-col gap-4">
+                                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                            <h5 className="font-display text-[12.5px] font-bold text-[#0a1b33]">
+                                              LMS Progress Breakdown — {member.name}
+                                            </h5>
+                                            <span className="font-sans text-[11px] text-[#b8935a] font-bold uppercase tracking-wider">
+                                              Total: {finishedCount} lessons completed
+                                            </span>
+                                          </div>
+
+                                          <div className="grid md:grid-cols-2 gap-4 max-h-[300px] overflow-y-auto pr-1">
+                                            {librariesList.map(lib => {
+                                              const videos = lib.resources?.filter(r => r.type === 'video') || [];
+                                              if (videos.length === 0) return null; // Skip libraries without videos
+
+                                              const doneVids = videos.filter(v => prog?.completed_videos?.includes(v.id)) || [];
+                                              const pendingVids = videos.filter(v => !prog?.completed_videos?.includes(v.id)) || [];
+                                              const completedCount = doneVids.length;
+                                              const totalCount = videos.length;
+                                              const percent = Math.round((completedCount / totalCount) * 100);
+
+                                              return (
+                                                <div key={lib.id} className="bg-slate-50/50 border border-slate-200/40 rounded-2xl p-4 flex flex-col gap-2">
+                                                  <div className="flex justify-between items-center text-[12px]">
+                                                    <span className="text-[#0a1b33] font-display font-bold">{lib.name} Section</span>
+                                                    <span className="text-[#b8935a] font-display font-bold">
+                                                      {completedCount === totalCount ? 'All Completed! 🎉' : `${completedCount}/${totalCount} Done`}
+                                                    </span>
+                                                  </div>
+
+                                                  <div className="w-full bg-slate-200/70 h-1.5 rounded-full overflow-hidden">
+                                                    <div 
+                                                      className="bg-[#b8935a] h-full rounded-full transition-all duration-300" 
+                                                      style={{ width: `${percent}%` }} 
+                                                    />
+                                                  </div>
+
+                                                  <div className="flex flex-col gap-1.5 mt-2 font-sans text-[11.5px]">
+                                                    {doneVids.map(v => (
+                                                      <div key={v.id} className="flex items-start gap-1.5 text-slate-600 font-medium pl-0.5">
+                                                        <CheckSquare className="w-3.5 h-3.5 text-emerald-500 fill-emerald-100/50 shrink-0 mt-0.5" />
+                                                        <span className="truncate">{v.title}</span>
+                                                      </div>
+                                                    ))}
+                                                    {pendingVids.map(v => (
+                                                      <div key={v.id} className="flex items-start gap-1.5 text-slate-400 pl-0.5">
+                                                        <Square className="w-3.5 h-3.5 text-slate-300 shrink-0 mt-0.5" />
+                                                        <span className="truncate">{v.title}</span>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
                               );
                             })}
                           </tbody>
