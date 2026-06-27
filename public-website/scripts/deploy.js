@@ -3,14 +3,14 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 
 try {
-  console.log('Building LMS Portal project...');
-  execSync('npm --prefix lms-portal run build', { stdio: 'inherit' });
+  console.log('Building project...');
+  execSync('npm run build', { stdio: 'inherit' });
 
   // Create a .nojekyll file to prevent GitHub pages from ignoring assets (if deployed there)
-  writeFileSync(join('lms-portal', 'dist', '.nojekyll'), '');
+  writeFileSync(join('dist', '.nojekyll'), '');
 
-  console.log('Initializing temporary git repository in lms-portal/dist...');
-  const options = { cwd: join('lms-portal', 'dist'), stdio: 'inherit' };
+  console.log('Initializing temporary git repository in dist...');
+  const options = { cwd: 'dist', stdio: 'inherit' };
   execSync('git init', options);
   execSync('git add -A', options);
   execSync('git commit -m "Deploy production build"', options);

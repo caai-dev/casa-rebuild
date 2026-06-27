@@ -1,0 +1,72 @@
+[
+  {
+    "name": "4814 Outlook Drive",
+    "location": "New York, US",
+    "industry": "Real Estate Development",
+    "color": "text-sky-500 bg-sky-500/10 border-sky-500/20",
+    "img": ""
+  },
+  {
+    "name": "CPA Group",
+    "location": "Florida, US",
+    "industry": "Assurance & Professional Services",
+    "color": "text-indigo-500 bg-indigo-500/10 border-indigo-500/20",
+    "img": ""
+  },
+  {
+    "name": "Rucept Inc.",
+    "location": "California, US",
+    "industry": "Private Enterprise & Tech",
+    "color": "text-purple-500 bg-purple-500/10 border-purple-500/20",
+    "img": ""
+  },
+  {
+    "name": "Water Resource",
+    "location": "California, US",
+    "industry": "Public Sector Utility",
+    "color": "text-teal-500 bg-teal-500/10 border-teal-500/20",
+    "img": ""
+  },
+  {
+    "name": "Wachna Law",
+    "location": "Ontario, Canada",
+    "industry": "Corporate Law Practice",
+    "color": "text-rose-500 bg-rose-500/10 border-rose-500/20",
+    "img": ""
+  },
+  {
+    "name": "Wolf Ausch CPA",
+    "location": "New York, US",
+    "industry": "Assurance & Professional Services",
+    "color": "text-violet-500 bg-violet-500/10 border-violet-500/20",
+    "img": ""
+  },
+  {
+    "name": "Charm Estate Inc.",
+    "location": "New York, US",
+    "industry": "Real Estate Development",
+    "color": "text-emerald-500 bg-emerald-500/10 border-emerald-500/20",
+    "img": ""
+  },
+  {
+    "name": "Advantage Partners",
+    "location": "United States",
+    "industry": "Asset Management",
+    "color": "text-amber-500 bg-amber-500/10 border-amber-500/20",
+    "img": ""
+  },
+  {
+    "name": "Pico Clinics",
+    "location": "United States",
+    "industry": "Health & Life Sciences",
+    "color": "text-pink-500 bg-pink-500/10 border-pink-500/20",
+    "img": ""
+  },
+  {
+    "name": "Saffire Holidays Pvt Ltd",
+    "location": "Global / Holidays",
+    "industry": "Travel & Leisure Services",
+    "color": "text-orange-500 bg-orange-500/10 border-orange-500/20",
+    "img": ""
+  }
+]
