@@ -1319,40 +1319,44 @@ export default function MembersView() {
                         return (
                           <div
                             key={lib.id}
-                            className={`w-full p-4 rounded-[22px] border transition-all flex flex-col gap-2 group ${
+                            onClick={() => {
+                              setActiveLibrary(lib);
+                              const videos = lib.resources?.filter(r => r.type === 'video') || [];
+                              setActiveVideo(videos.length > 0 ? videos[0] : null);
+                            }}
+                            className={`w-full p-4 rounded-[22px] border transition-all flex flex-col gap-2 group cursor-pointer ${
                               isActive
                                 ? 'bg-white border-[#b8935a] shadow-md'
                                 : 'bg-white/80 border-slate-200/40 hover:bg-white hover:border-slate-300 hover:shadow-sm'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <button
-                                onClick={() => {
-                                  setActiveLibrary(lib);
-                                  const videos = lib.resources?.filter(r => r.type === 'video') || [];
-                                  setActiveVideo(videos.length > 0 ? videos[0] : null);
-                                }}
-                                className="flex-1 text-left cursor-pointer min-w-0"
-                              >
+                              <div className="flex-1 text-left min-w-0">
                                 <h5 className={`font-display text-[14px] font-bold tracking-tight truncate ${
                                   isActive ? 'text-[#b8935a]' : 'text-[#0a1b33]'
                                 }`}>
                                   {lib.name}
                                 </h5>
-                              </button>
+                              </div>
 
                               {/* Manage Library (Edit/Delete) */}
                               {isAdmin && (
-                                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                                   <button
-                                    onClick={() => openEditLibrary(lib)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditLibrary(lib);
+                                    }}
                                     className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-[#b8935a]"
                                     title="Rename Library"
                                   >
                                     <Edit3 className="w-3.5 h-3.5" />
                                   </button>
                                   <button
-                                    onClick={() => deleteLibrary(lib.id)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteLibrary(lib.id);
+                                    }}
                                     className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-rose-500"
                                     title="Delete Library"
                                   >
