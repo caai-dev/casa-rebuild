@@ -10,10 +10,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // Locate persistent data directory outside the web root (survives Git redeployments on Hostinger)
-$dataDir = __DIR__ . '/../casa_data';
+$possiblePaths = [
+    __DIR__ . '/../casa_data',
+    __DIR__ . '/../../casa_data',
+    __DIR__ . '/../../../casa_data',
+    __DIR__ . '/casa_data'
+];
 
-// Fallback to local web folder if parent directory is not writable (for local dev)
-if (!is_writable(dirname(__DIR__)) && !file_exists($dataDir)) {
+$dataDir = null;
+// 1. Prioritize path where database already exists (migrates old data instantly!)
+foreach ($possiblePaths as $path) {
+    if (file_exists($path . '/users.json')) {
+        $dataDir = $path;
+        break;
+    }
+}
+
+// 2. Fallback to existing directory
+if (!$dataDir) {
+    foreach ($possiblePaths as $path) {
+        if (file_exists($path) && is_dir($path)) {
+            $dataDir = $path;
+            break;
+        }
+    }
+}
+
+// 3. Fallback to first writable path
+if (!$dataDir) {
+    foreach ($possiblePaths as $path) {
+        $parent = dirname($path);
+        if (is_writable($parent)) {
+            $dataDir = $path;
+            break;
+        }
+    }
+}
+
+// 4. Default fallback
+if (!$dataDir) {
     $dataDir = __DIR__ . '/data';
 }
 

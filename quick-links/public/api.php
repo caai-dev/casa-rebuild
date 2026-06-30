@@ -9,11 +9,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // Data Directory outside the web root (relative to dist/api.php)
-$DATA_DIR = __DIR__ . '/../../casa_data';
-if (!file_exists($DATA_DIR)) {
-    mkdir($DATA_DIR, 0777, true);
+$possiblePaths = [
+    __DIR__ . '/../casa_data',
+    __DIR__ . '/../../casa_data',
+    __DIR__ . '/../../../casa_data',
+    __DIR__ . '/casa_data'
+];
+
+$dataDir = null;
+// 1. Prioritize path where database already exists (migrates old data instantly!)
+foreach ($possiblePaths as $path) {
+    if (file_exists($path . '/quick_links.json')) {
+        $dataDir = $path;
+        break;
+    }
 }
-$LINKS_FILE = $DATA_DIR . '/quick_links.json';
+
+// 2. Fallback to existing directory
+if (!$dataDir) {
+    foreach ($possiblePaths as $path) {
+        if (file_exists($path) && is_dir($path)) {
+            $dataDir = $path;
+            break;
+        }
+    }
+}
+
+// 3. Fallback to first writable path
+if (!$dataDir) {
+    foreach ($possiblePaths as $path) {
+        $parent = dirname($path);
+        if (is_writable($parent)) {
+            $dataDir = $path;
+            break;
+        }
+    }
+}
+
+// 4. Default fallback
+if (!$dataDir) {
+    $dataDir = __DIR__ . '/data';
+}
+
+if (!file_exists($dataDir)) {
+    mkdir($dataDir, 0777, true);
+}
+$LINKS_FILE = $dataDir . '/quick_links.json';
 
 // Default categories and links if database doesn't exist
 $DEFAULT_CATEGORIES = [
